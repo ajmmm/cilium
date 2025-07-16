@@ -52,9 +52,6 @@ func (def KPRFlags) Flags(flags *pflag.FlagSet) {
 	flags.Bool("enable-host-port", def.EnableHostPort, "Enable k8s hostPort mapping feature (requires enabling enable-node-port)")
 	flags.MarkDeprecated("enable-host-port", "The flag will be removed in v1.19. The feature will be unconditionally enabled by enabling kube-proxy-replacement")
 
-	flags.Bool("enable-svc-source-range-check", def.EnableSVCSourceRangeCheck, "Enable check of service source ranges (currently, only for LoadBalancer)")
-	flags.MarkDeprecated("enable-svc-source-range-check", "The flag will be removed in v1.19. The feature will be unconditionally enabled by enabling kube-proxy-replacement")
-
 	flags.Bool("enable-session-affinity", def.EnableSessionAffinity, "Enable support for service session affinity")
 	flags.MarkDeprecated("enable-session-affinity", "The flag to control Session Affinity has been deprecated, and it will be removed in v1.19. The feature will be unconditionally enabled.")
 
