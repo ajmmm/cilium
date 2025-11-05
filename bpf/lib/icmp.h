@@ -45,11 +45,27 @@ __wsum icmp_wsum_accumulate(void *data_start, void *data_end, int sample_len)
 		body16(i + 64) \
 		body16(i + 96)
 
+	/* The maximum ICMP payload you could get in a standard IPv4 packet
+	 * on a standard 1500 byte MTU is 1472 bytes. With the ICMP header,
+	 * that's 1480 bytes.
+	 * 
+	 * We step over data only up to the 1536th byte, because it's not
+	 * pragmatic to support something like a 9K mtu here. But it does
+	 * mean someone can do a ping over the 1500 byte MTU boundary which
+	 * may be helpful?
+	 */
 	body128(0)
+	body128(128)
 	body128(256)
+	body128(384)
 	body128(512)
+	body128(640)
 	body128(768)
+	body128(896)
 	body128(1024)
+	body128(1152)
+	body128(1280)
+	body128(1408)
 
 	return wsum;
 }
