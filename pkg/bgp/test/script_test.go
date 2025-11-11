@@ -30,8 +30,10 @@ import (
 	"github.com/cilium/cilium/pkg/bgp/test/commands"
 	"github.com/cilium/cilium/pkg/datapath/linux/safenetlink"
 	"github.com/cilium/cilium/pkg/datapath/tables"
+	"github.com/cilium/cilium/pkg/endpoint/regeneration"
 	envoyCfg "github.com/cilium/cilium/pkg/envoy/config"
 	"github.com/cilium/cilium/pkg/hive"
+	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/kpr"
 	"github.com/cilium/cilium/pkg/lbipamconfig"
 	"github.com/cilium/cilium/pkg/loadbalancer"
@@ -106,6 +108,14 @@ func TestPrivilegedScript(t *testing.T) {
 			}
 		}
 
+		// A fresh instance of ipcache is needed for LoadBalancer
+		ipcacheConfig := &ipcache.Configuration{
+			Context: t.Context(),
+			Logger:  hivetest.Logger(t),
+		}
+		ipc := ipcache.NewIPCache(ipcacheConfig)
+		t.Cleanup(func() { ipc.Shutdown() })
+
 		h := ciliumhive.New(
 			metrics.Cell,
 
@@ -139,6 +149,15 @@ func TestPrivilegedScript(t *testing.T) {
 
 			// Provide source.Sources for loadbalancer writer
 			cell.Provide(func() source.Sources { return source.Sources{} }),
+
+			cell.Provide(
+				regeneration.NewFence,
+				ipcache.NewLocalIPIdentityWatcher,
+				ipcache.NewIPIdentitySynchronizer,
+				func() *ipcache.IPCache {
+					return ipc
+				},
+			),
 
 			cell.Provide(
 				func() *option.DaemonConfig {

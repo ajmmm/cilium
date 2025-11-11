@@ -21,6 +21,7 @@ import (
 	"github.com/cilium/cilium/pkg/annotation"
 	"github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/datapath/tables"
+	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/loadbalancer/maps"
 	"github.com/cilium/cilium/pkg/maglev"
@@ -1249,11 +1250,21 @@ func TestBPFOps(t *testing.T) {
 				external := extCfg
 				cfg := cfg
 				cfg.LBAlgorithm = algo
+
+				// A fresh instance of ipcache is needed.
+				ipcacheConfig := &ipcache.Configuration{
+					Context: t.Context(),
+					Logger:  log,
+				}
+				ipc := ipcache.NewIPCache(ipcacheConfig)
+				t.Cleanup(func() { ipc.Shutdown() })
+
 				p := bpfOpsParams{
 					Lifecycle:      lc,
 					Log:            log,
 					Config:         cfg,
 					ExternalConfig: external,
+					IPCache:        ipc,
 					LBMaps:         lbmaps,
 					Maglev:         maglev,
 					DB:             db,
@@ -1275,11 +1286,21 @@ func TestBPFOps(t *testing.T) {
 			// fresh IDs.
 			external := extCfg
 			cfg.LBAlgorithm = setWithAlgo.algo
+
+			// A fresh instance of ipcache is needed.
+			ipcacheConfig := &ipcache.Configuration{
+				Context: t.Context(),
+				Logger:  log,
+			}
+			ipc := ipcache.NewIPCache(ipcacheConfig)
+			t.Cleanup(func() { ipc.Shutdown() })
+
 			p := bpfOpsParams{
 				Lifecycle:      lc,
 				Log:            log,
 				Config:         cfg,
 				ExternalConfig: external,
+				IPCache:        ipc,
 				LBMaps:         lbmaps,
 				Maglev:         maglev,
 				DB:             db,

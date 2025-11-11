@@ -25,6 +25,7 @@ import (
 	"github.com/cilium/cilium/pkg/byteorder"
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/datapath/tables"
+	"github.com/cilium/cilium/pkg/ipcache"
 	cilium_api_v2alpha1 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
 	"github.com/cilium/cilium/pkg/lbipamconfig"
 	"github.com/cilium/cilium/pkg/loadbalancer"
@@ -115,6 +116,7 @@ type BPFOps struct {
 
 	cfg           loadbalancer.Config
 	extCfg        loadbalancer.ExternalConfig
+	ipcache       *ipcache.IPCache
 	maglev        *maglev.Maglev
 	lastUpdatedAt atomic.Pointer[time.Time]
 	pruneCount    atomic.Int32
@@ -182,6 +184,7 @@ type bpfOpsParams struct {
 	Log            *slog.Logger
 	Config         loadbalancer.Config
 	ExternalConfig loadbalancer.ExternalConfig
+	IPCache        *ipcache.IPCache
 	LBMaps         maps.LBMaps
 	Maglev         *maglev.Maglev
 	DB             *statedb.DB
@@ -198,6 +201,7 @@ func newBPFOps(p bpfOpsParams) *BPFOps {
 	ops := &BPFOps{
 		cfg:       p.Config,
 		extCfg:    p.ExternalConfig,
+		ipcache:   p.IPCache,
 		maglev:    p.Maglev,
 		log:       newRateLimitingLogger(p.Log),
 		LBMaps:    p.LBMaps,

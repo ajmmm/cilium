@@ -41,6 +41,7 @@ import (
 	"github.com/cilium/cilium/pkg/envoy"
 	envoyCfg "github.com/cilium/cilium/pkg/envoy/config"
 	"github.com/cilium/cilium/pkg/hive"
+	"github.com/cilium/cilium/pkg/ipcache"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client/testutils"
 	"github.com/cilium/cilium/pkg/k8s/synced"
 	k8sTestutils "github.com/cilium/cilium/pkg/k8s/testutils"
@@ -71,6 +72,13 @@ func TestScript(t *testing.T) {
 		}
 		var lns *node.LocalNodeStore
 
+		ipcacheConfig := &ipcache.Configuration{
+			Context: t.Context(),
+			Logger:  hivetest.Logger(t),
+		}
+		ipc := ipcache.NewIPCache(ipcacheConfig)
+		t.Cleanup(func() { ipc.Shutdown() })
+
 		h := hive.New(
 			k8sClient.FakeClientCell(),
 			synced.Cell,
@@ -86,6 +94,14 @@ func TestScript(t *testing.T) {
 			nodeipamconfig.Cell,
 
 			lbcell.Cell,
+
+			cell.Provide(
+				ipcache.NewLocalIPIdentityWatcher,
+				ipcache.NewIPIdentitySynchronizer,
+				func() *ipcache.IPCache {
+					return ipc
+				},
+			),
 
 			cell.Provide(
 				tables.NewNodeAddressTable,
