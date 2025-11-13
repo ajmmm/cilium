@@ -22,11 +22,14 @@ import (
 	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/cilium/cilium/pkg/annotation"
 	"github.com/cilium/cilium/pkg/byteorder"
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/datapath/tables"
 	"github.com/cilium/cilium/pkg/ipcache"
+	ipcacheTypes "github.com/cilium/cilium/pkg/ipcache/types"
 	cilium_api_v2alpha1 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
+	"github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/lbipamconfig"
 	"github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/loadbalancer/maps"
@@ -35,6 +38,7 @@ import (
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/maglev"
 	"github.com/cilium/cilium/pkg/promise"
+	"github.com/cilium/cilium/pkg/source"
 	"github.com/cilium/cilium/pkg/time"
 	"github.com/cilium/cilium/pkg/u8proto"
 )
@@ -490,6 +494,9 @@ func (ops *BPFOps) deleteFrontend(fe *loadbalancer.Frontend) error {
 	if err := ops.deleteWildcard(fe, feID); err != nil {
 		return fmt.Errorf("delete wildcard: %w", err)
 	}
+
+	// Synchronise ipcache entry, using Action=Unspec to force a deletion.
+	ops.syncIPCache(fe, annotation.UnsupportedProtoActionUnspec)
 
 	// Decrease the backend reference counts and drop state associated with the frontend.
 	ops.updateBackendRefCounts(fe.Address, nil)
@@ -1062,6 +1069,9 @@ func (ops *BPFOps) updateFrontend(fe *loadbalancer.Frontend) error {
 		return fmt.Errorf("upsert wildcard: %w", err)
 	}
 
+	// Synchronise ipcache entry.
+	ops.syncIPCache(fe, svc.UnsupportedProtoAction)
+
 	// Calculate the number of existing backend references, so we can cleanup if there there
 	// has been a change.
 	numPreviousBackends := len(ops.backendReferences[fe.Address])
@@ -1153,6 +1163,22 @@ func (ops *BPFOps) useWildcard(fe *loadbalancer.Frontend) bool {
 		return *lbClass == cilium_api_v2alpha1.BGPLoadBalancerClass ||
 			*lbClass == cilium_api_v2alpha1.L2AnnounceLoadBalancerClass
 	}
+	return false
+}
+
+func (ops *BPFOps) useIPCache(fe *loadbalancer.Frontend) bool {
+	// Never allow a zero address to touch the IPCache
+	if fe.Address.AddrCluster().IsUnspecified() {
+		return false
+	}
+
+	switch fe.Type {
+	case loadbalancer.SVCTypeLoadBalancer,
+		loadbalancer.SVCTypeClusterIP,
+		loadbalancer.SVCTypeExternalIPs:
+		return fe.Address.Scope() == loadbalancer.ScopeExternal
+	}
+
 	return false
 }
 
@@ -1415,6 +1441,85 @@ func (ops *BPFOps) deleteWildcard(fe *loadbalancer.Frontend, feID loadbalancer.S
 	}
 
 	return nil
+}
+
+func (ops *BPFOps) syncIPCache(fe *loadbalancer.Frontend, svcAction annotation.UnsupportedProtoAction) {
+	if !ops.useIPCache(fe) {
+		return
+	}
+
+	// General convention in Cilium is to use the k8s resource that generated an
+	// IPCache entry as its ResourceID, which in this case would be the service
+	// name. However, this doesn't give us enough uniqueness.
+	//
+	// If we only use the service name as ResourceID, then IPCache has nothing
+	// to differentiate FE-to-IPCacheEntry relationships. In the case where a
+	// single service creates Frontend-A and Frontend-B, deletion of Frontend-A
+	// will cause IPCache to delete the entry that Frontend-B also relies on.
+	//
+	// So, we go against convention here, and derive a ResourceID based on the
+	// Frontend address, which provides uniqueness via IP/Port/Protocol, meaning
+	// we don't need to build additional state tracking in the BPF Reconciler.
+	//
+	// Note: ResourceIDs are in a specific format, delimited by a forward-slash,
+	// so we delimit the FE L3n4Addr with a colon, to avoid breakage in IPCache.
+	feResourceID := ipcacheTypes.NewResourceID(
+		ipcacheTypes.ResourceKindService,
+		fe.Service.Name.Namespace(),
+		fe.Address.StringWithProtocolDelimited(":"),
+	)
+
+	// Compute IPCache flags for this FE. Note we only initialise the Unroutable
+	// flag to True if we have a legitimaste 'drop' action. In any other case,
+	// the flags are uninitialised.
+	entryFlags := ipcacheTypes.EndpointFlags{}
+
+	switch svcAction {
+	case annotation.UnsupportedProtoActionForward:
+		// Do nothing
+	case annotation.UnsupportedProtoActionDrop:
+		entryFlags.SetUnroutable(true)
+	default:
+	}
+
+	entryAddr := fe.Address.AddrCluster()
+	entryLabel := make(labels.Labels, 1)
+	entryLabel.AddWorldLabel(entryAddr.Addr())
+
+	ops.log.Debug("Synchronise IPCache entry",
+		logfields.Type, fe.Type,
+		logfields.ResourceID, feResourceID,
+		logfields.Label, entryLabel,
+		logfields.Flags, entryFlags,
+	)
+
+	if entryFlags.IsValid() {
+		// It's important to use a low priority source here, in case another
+		// component wants to claim ownership of the IPCache entry.
+		//
+		// Consider if a Service VIP is allocated from NodeIPAM, which means
+		// the Frontend will carry the CiliumInternalIP. In this scenario, the
+		// node's IPCache entry should take precedent over our entry. The node
+		// internal network stack should provide appropriate drop logic for
+		// traffic on unknown protocols or ports.
+		//
+		// The entry we program here should be seen as a last resort, and hence
+		// the use of source.Generated.
+		ops.ipcache.UpsertMetadata(
+			entryAddr.AsPrefixCluster(),
+			source.Generated,
+			feResourceID,
+			entryLabel,
+			entryFlags,
+		)
+	} else {
+		ops.ipcache.RemoveMetadata(
+			entryAddr.AsPrefixCluster(),
+			feResourceID,
+			entryLabel,
+			entryFlags,
+		)
+	}
 }
 
 var _ reconciler.Operations[*loadbalancer.Frontend] = &BPFOps{}
