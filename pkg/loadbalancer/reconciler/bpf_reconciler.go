@@ -1480,6 +1480,10 @@ func (ops *BPFOps) syncIPCache(fe *loadbalancer.Frontend, svcAction annotation.U
 	case annotation.UnsupportedProtoActionDrop:
 		entryFlags.SetUnroutable(true)
 	default:
+		// Unspecified annotation, use LB configuration
+		if ops.cfg.LBUnsupportedProtoAction == loadbalancer.LBUnsupportedProtoActionDrop {
+			entryFlags.SetUnroutable(true)
+		}
 	}
 
 	entryAddr := fe.Address.AddrCluster()
