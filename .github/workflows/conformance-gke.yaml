@@ -170,6 +170,7 @@ jobs:
           IPSEC=$(echo "${EXTRA_ARGS}" | sed 's/^""$/{}/' | jq -r '.["ipsec"] // false')
           WG=$(echo "${EXTRA_ARGS}" | sed 's/^""$/{}/' | jq -r '.["wireguard"] // false')
           KPR=$(echo "${EXTRA_ARGS}" | sed 's/^""$/{}/' | jq -r '.["kpr"] // false')
+          BPFMASQV4=$(echo "${EXTRA_ARGS}" | sed 's/^""$/{}/' | jq -r '.["bpf-masq-v4"] // false')
           ADV_FEAT=$(echo "${EXTRA_ARGS}" | sed 's/^""$/{}/' | jq -r '.["advanced-features"] // false')
 
           # shellcheck disable=SC2193
@@ -197,6 +198,11 @@ jobs:
           if [[ "$KPR" == "true" ]]; then
             echo "::notice::KPR enabled - setting kpr=true for all matrix entries"
             jq '.config |= map(. + {"kpr": true})' /tmp/matrix.json > /tmp/matrix.json.tmp
+            mv /tmp/matrix.json.tmp /tmp/matrix.json
+          fi
+
+          if [ "${BPFMASQV4}" == "true" ]; then
+            jq '.config |= map(. + {"bpf-masq-v4": true})' /tmp/matrix.json > /tmp/matrix.json.tmp
             mv /tmp/matrix.json.tmp /tmp/matrix.json
           fi
 
@@ -346,6 +352,11 @@ jobs:
 
           if [[ "${{ matrix.config.kpr }}" == "true" ]]; then
             CILIUM_INSTALL_DEFAULTS+=" --helm-set kubeProxyReplacement=true"
+          fi
+
+          if [ "${{ matrix.config.bpf-masq-v4 }}" == "true" ]; then
+            CILIUM_INSTALL_DEFAULTS+=" --helm-set bpf.masquerade=true \
+              --helm-set enableIPv4Masquerade=true"
           fi
 
           if [[ "${{ matrix.config.advanced-features }}" == "true" ]]; then
