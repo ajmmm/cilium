@@ -181,17 +181,19 @@ func parseLRP(cfg Config, log *slog.Logger, clrp *v2.CiliumLocalRedirectPolicy) 
 func getSanitizedLocalRedirectPolicy(cfg Config, log *slog.Logger, name, namespace string, uid types.UID, spec v2.CiliumLocalRedirectPolicySpec) (*LocalRedirectPolicy, error) {
 
 	var (
-		addrMatcher    = spec.RedirectFrontend.AddressMatcher
-		svcMatcher     = spec.RedirectFrontend.ServiceMatcher
-		redirectTo     = spec.RedirectBackend
-		frontendType   = frontendTypeUnknown
-		checkNamedPort = false
-		lrpType        lrpConfigType
-		k8sSvc         lb.ServiceName
-		fe             lb.L3n4Addr
-		feMappings     []feMapping
-		bePorts        []bePortInfo
-		bePortsMap     = make(map[lb.FEPortName]bePortInfo)
+		addrMatcher      = spec.RedirectFrontend.AddressMatcher
+		svcMatcher       = spec.RedirectFrontend.ServiceMatcher
+		redirectTo       = spec.RedirectBackend
+		frontendType     = frontendTypeUnknown
+		numMatcherPorts  = 0
+		numRedirectPorts = 0
+		checkNamedPort   = false
+		lrpType          lrpConfigType
+		k8sSvc           lb.ServiceName
+		fe               lb.L3n4Addr
+		feMappings       []feMapping
+		bePorts          []bePortInfo
+		bePortsMap       = make(map[lb.FEPortName]bePortInfo)
 	)
 
 	// Parse frontend config
@@ -213,14 +215,19 @@ func getSanitizedLocalRedirectPolicy(cfg Config, log *slog.Logger, name, namespa
 			return nil, fmt.Errorf("address %q in AddressMatcher disallowed by --"+AddressMatcherCIDRsName, addrMatcher.IP)
 		}
 
-		if len(addrMatcher.ToPorts) > 1 {
+		numMatcherPorts = len(addrMatcher.ToPorts)
+		switch numMatcherPorts {
+		case 0:
+			// No ports, leave as unknown to fail validation
+		case 1:
+			frontendType = addrFrontendSinglePort
+		default:
 			// If there are multiple ports, then the ports must be named.
 			checkNamedPort = true
 			frontendType = addrFrontendNamedPorts
-		} else if len(addrMatcher.ToPorts) == 1 {
-			frontendType = addrFrontendSinglePort
 		}
-		feMappings = make([]feMapping, len(addrMatcher.ToPorts))
+
+		feMappings = make([]feMapping, numMatcherPorts)
 		for i, portInfo := range addrMatcher.ToPorts {
 			p, pName, proto, err := portInfo.SanitizePortInfo(checkNamedPort)
 			if err != nil {
@@ -245,7 +252,9 @@ func getSanitizedLocalRedirectPolicy(cfg Config, log *slog.Logger, name, namespa
 			return nil, fmt.Errorf("kubernetes service namespace" +
 				"does not match with the CiliumLocalRedirectPolicy namespace")
 		}
-		switch len(svcMatcher.ToPorts) {
+
+		numMatcherPorts = len(svcMatcher.ToPorts)
+		switch numMatcherPorts {
 		case 0:
 			frontendType = svcFrontendAll
 		case 1:
@@ -254,7 +263,8 @@ func getSanitizedLocalRedirectPolicy(cfg Config, log *slog.Logger, name, namespa
 			frontendType = svcFrontendNamedPorts
 			checkNamedPort = true
 		}
-		feMappings = make([]feMapping, len(svcMatcher.ToPorts))
+
+		feMappings = make([]feMapping, numMatcherPorts)
 		for i, portInfo := range svcMatcher.ToPorts {
 			p, pName, proto, err := portInfo.SanitizePortInfo(checkNamedPort)
 			if err != nil {
@@ -278,17 +288,28 @@ func getSanitizedLocalRedirectPolicy(cfg Config, log *slog.Logger, name, namespa
 	}
 
 	// Parse backend config
-	bePorts = make([]bePortInfo, len(redirectTo.ToPorts))
-	if len(redirectTo.ToPorts) > 1 {
+	numRedirectPorts = len(redirectTo.ToPorts)
+	if numRedirectPorts > 1 {
 		// We check for backend named ports if either frontend/backend have
 		// multiple ports.
 		checkNamedPort = true
 	}
+
+	numFeMapping := len(feMappings)
+	bePorts = make([]bePortInfo, numRedirectPorts)
 	for i, portInfo := range redirectTo.ToPorts {
 		p, pName, proto, err := portInfo.SanitizePortInfo(checkNamedPort)
 		if err != nil {
 			return nil, fmt.Errorf("invalid backend port: %w", err)
 		}
+
+		// When a single port is specified in the LRP frontend, the protocol for frontend and
+		// backend must match.
+		if numFeMapping == 1 && feMappings[0].feAddr.Protocol() != proto {
+			return nil, fmt.Errorf("backend protocol must match with " +
+				"frontend protocol")
+		}
+
 		beP := bePortInfo{
 			l4Addr: lb.L4Addr{
 				Protocol: proto,
@@ -301,14 +322,6 @@ func getSanitizedLocalRedirectPolicy(cfg Config, log *slog.Logger, name, namespa
 			// Port name is present.
 			bePortsMap[lb.FEPortName(pName)] = bePorts[i]
 
-		}
-	}
-	// When a single port is specified in the LRP frontend, the protocol for frontend and
-	// backend must match.
-	if len(feMappings) == 1 {
-		if bePorts[0].l4Addr.Protocol != feMappings[0].feAddr.Protocol() {
-			return nil, fmt.Errorf("backend protocol must match with " +
-				"frontend protocol")
 		}
 	}
 
