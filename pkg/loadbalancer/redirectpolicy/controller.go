@@ -410,6 +410,14 @@ func (c *lrpController) updateRedirectBackends(wtxn writer.WriteTxn, lrp *LocalR
 		if !backendPortIncluded(be.Address) {
 			return
 		}
+
+		// It's possible that we are attmepting to append multiple backends, but in the
+		// case of an LRP with svcFrontendSinglePort, we must check the port matches the
+		// first feMapping port too.
+		if lrp.FrontendType == svcFrontendSinglePort && be.Address.Port() != lrp.FrontendMappings[0].feAddr.Port() {
+			return
+		}
+
 		beps = append(beps, lb.Backend{
 			Address:   be.Address,
 			State:     be.State,
@@ -495,6 +503,16 @@ func (c *lrpController) updateRedirectBackends(wtxn writer.WriteTxn, lrp *LocalR
 }
 
 func shouldRedirectFrontend(log *slog.Logger, lrp *LocalRedirectPolicy, fe *lb.Frontend, pods []podInfo) bool {
+	log.Debug("XXX shouldRedirectFrontend",
+		logfields.Frontend, fe,
+		"lrpType", lrpConfigTypeString(lrp.LRPType),
+		"lrpFrontendType", frontendConfigTypeString(lrp.FrontendType),
+		"lrpServiceID", lrp.ServiceID,
+		"lrpServiceName", lrp.RedirectServiceName(),
+		"lrpFrontendMappings", lrp.FrontendMappings,
+		"lrpBackendPorts", lrp.BackendPorts,
+		"pods", pods,
+	)
 	// 0. Don't redirect if we have no matching target pods.
 	if len(pods) == 0 {
 		return false
@@ -513,6 +531,7 @@ func shouldRedirectFrontend(log *slog.Logger, lrp *LocalRedirectPolicy, fe *lb.F
 			}
 		}
 	}
+
 	if !match {
 		// RedirectFrontend.ToPorts mismatch, skip.
 		if log != nil {
@@ -530,7 +549,16 @@ func shouldRedirectFrontend(log *slog.Logger, lrp *LocalRedirectPolicy, fe *lb.F
 	// single port (as that doesn't need to be named).
 	match = len(lrp.BackendPorts) <= 1
 
-	// 2.2. Frontend matches if there is a backend whose port name matches.
+	// 2.2 Frontend matches if there is a single frontend port, and multiple backend ports.
+	// The mapping will be made to the first backend entry, ignoring name. Note that the
+	// protocol has already been validated in the LRP parser, but we check it again here
+	// for safety.
+	if !match {
+		match = len(lrp.FrontendMappings) == 1 &&
+			lrp.FrontendMappings[0].feAddr.Protocol() == lrp.BackendPorts[0].l4Addr.Protocol
+	}
+
+	// 2.3. Frontend matches if there is a backend whose port name matches.
 	if !match {
 		_, match = lrp.BackendPortsByPortName[fe.PortName]
 	}
