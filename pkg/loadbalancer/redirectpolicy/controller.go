@@ -295,16 +295,48 @@ func (c *lrpController) updateRedirects(wtxn writer.WriteTxn, ws *statedb.WatchS
 	lrpServiceName := lrp.RedirectServiceName()
 	switch lrp.LRPType {
 	case lrpConfigTypeSvc:
+		lrpServiceAddrs := sets.New[lb.L3n4Addr]()
+		isSinglePort := lrp.FrontendType == svcFrontendSinglePort && len(lrp.FrontendMappings) > 0
+
+		cacheLrpAddr := func(fe *lb.Frontend) bool {
+			if !isSinglePort {
+				return false
+			}
+
+			lrpAddr := lrp.FrontendMappings[0].feAddr
+			if lrpAddr.Port() == fe.Address.Port() && lrpAddr.Protocol() == fe.Address.Protocol() {
+				return false
+			}
+
+			// Insert a new address into the lrpServiceAddr set, using the protocol, port and
+			// scope from the LRP frontend mapping, but the IP address of the matched service.
+			lrpServiceAddrs.Insert(lb.NewL3n4Addr(
+				lrpAddr.Protocol(),
+				fe.Address.AddrCluster(),
+				lrpAddr.Port(),
+				lrpAddr.Scope(),
+			))
+			return true
+		}
+
 		// Find frontends associated with the target service that match the redirection criteria and
 		// redirect them to the LRP "pseudo-service".
 		targetName := lrp.ServiceID
 		fes, watch := c.p.Writer.Frontends().ListWatch(wtxn, lb.FrontendByServiceName(targetName))
 		ws.Add(watch)
+
 		for fe := range fes {
 			// Only ClusterIP services can be redirected.
 			if fe.Type != lb.SVCTypeClusterIP {
 				continue
 			}
+
+			// In the case of single port LRPs, it's possible the redirectFrontend.toPorts
+			// is filtered, and the port does does not actually reflect any existing service.
+			// We need to cache this fe address, substituting the feMapping[0] port, so we
+			// can look to create a new frontend later.
+			cacheLrpAddr(fe)
+
 			if shouldRedirectFrontend(c.p.Log, lrp, fe, pods) {
 				c.p.Log.Debug("Redirecting frontend",
 					logfields.Frontend, fe,
@@ -313,6 +345,51 @@ func (c *lrpController) updateRedirects(wtxn writer.WriteTxn, ws *statedb.WatchS
 				c.p.Writer.SetRedirectTo(wtxn, fe, &lrpServiceName)
 			} else {
 				c.p.Writer.SetRedirectTo(wtxn, fe, nil)
+			}
+		}
+
+		// In the case of a single-port LRP, if the redirectFrontend.toPorts[0] port
+		// value does not correlate to the underlying backend ports on the pseudo-
+		// service, there will be no frontend for said toPort[0] value to redirect.
+		// In this case, we should create a frontend if we have pods, and delete it
+		// if we don't have pods.
+		//
+		// The redirectFrontend.toPorts[0] value is carried by the feMapping[0]
+		// port, with an invalid address.
+		if isSinglePort {
+			numPods := len(pods)
+
+			for lrpAddr := range lrpServiceAddrs {
+
+				fe, _, found := c.p.Writer.Frontends().Get(wtxn, lb.FrontendByAddress(lrpAddr))
+
+				c.p.Log.Debug("XXX Checking for unmapped lrpAddr",
+					"lrpAddr", lrpAddr,
+					"fe", fe,
+					"found", found,
+					"numPods", numPods,
+				)
+
+				if numPods == 0 {
+					// No pods exist, so we drop this frontend out.
+				} else if !found {
+					_, err := c.p.Writer.UpsertFrontend(
+						wtxn,
+						lb.FrontendParams{
+							Address:     lrpAddr,
+							Type:        lb.SVCTypeLocalRedirect,
+							ServiceName: lrpServiceName,
+							ServicePort: lrpAddr.Port(),
+							PortName:    lb.FEPortName(""),
+						},
+					)
+					if err != nil {
+						c.p.Log.Error("Failed to upsert frontend for LocalRedirectPolicy",
+							logfields.LRPName, lrp.ID,
+							logfields.Address, lrpAddr,
+							logfields.Error, err)
+					}
+				}
 			}
 		}
 
@@ -410,6 +487,14 @@ func (c *lrpController) updateRedirectBackends(wtxn writer.WriteTxn, lrp *LocalR
 		if !backendPortIncluded(be.Address) {
 			return
 		}
+
+		// It's possible that we are attmepting to append multiple backends, but in the
+		// case of an LRP with svcFrontendSinglePort, we must check the port matches the
+		// first feMapping port too.
+		if lrp.FrontendType == svcFrontendSinglePort && be.Address.Port() != lrp.FrontendMappings[0].feAddr.Port() {
+			return
+		}
+
 		beps = append(beps, lb.Backend{
 			Address:   be.Address,
 			State:     be.State,
@@ -495,6 +580,18 @@ func (c *lrpController) updateRedirectBackends(wtxn writer.WriteTxn, lrp *LocalR
 }
 
 func shouldRedirectFrontend(log *slog.Logger, lrp *LocalRedirectPolicy, fe *lb.Frontend, pods []podInfo) bool {
+	if log != nil {
+		log.Debug("XXX shouldRedirectFrontend",
+			logfields.Frontend, fe,
+			"lrpType", lrpConfigTypeString(lrp.LRPType),
+			"lrpFrontendType", frontendConfigTypeString(lrp.FrontendType),
+			"lrpServiceID", lrp.ServiceID,
+			"lrpServiceName", lrp.RedirectServiceName(),
+			"lrpFrontendMappings", lrp.FrontendMappings,
+			"lrpBackendPorts", lrp.BackendPorts,
+			"pods", pods,
+		)
+	}
 	// 0. Don't redirect if we have no matching target pods.
 	if len(pods) == 0 {
 		return false
@@ -513,6 +610,7 @@ func shouldRedirectFrontend(log *slog.Logger, lrp *LocalRedirectPolicy, fe *lb.F
 			}
 		}
 	}
+
 	if !match {
 		// RedirectFrontend.ToPorts mismatch, skip.
 		if log != nil {
@@ -530,7 +628,16 @@ func shouldRedirectFrontend(log *slog.Logger, lrp *LocalRedirectPolicy, fe *lb.F
 	// single port (as that doesn't need to be named).
 	match = len(lrp.BackendPorts) <= 1
 
-	// 2.2. Frontend matches if there is a backend whose port name matches.
+	// 2.2 Frontend matches if there is a single frontend port, and multiple backend ports.
+	// The mapping will be made to the first backend entry, ignoring name. Note that the
+	// protocol has already been validated in the LRP parser, but we check it again here
+	// for safety.
+	if !match {
+		match = len(lrp.FrontendMappings) == 1 &&
+			lrp.FrontendMappings[0].feAddr.Protocol() == lrp.BackendPorts[0].l4Addr.Protocol
+	}
+
+	// 2.3. Frontend matches if there is a backend whose port name matches.
 	if !match {
 		_, match = lrp.BackendPortsByPortName[fe.PortName]
 	}

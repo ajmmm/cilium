@@ -151,6 +151,16 @@ func (lrp *LocalRedirectPolicy) getFrontendMappingModels(txn statedb.ReadTxn, fr
 
 		lrpServiceName := lrp.RedirectServiceName()
 
+		// Search for any pseudo-frontend that directly correlates to this LRP
+		for fe := range frontends.List(txn, lb.FrontendByServiceName(lrpServiceName)) {
+			if fe.Type != lb.SVCTypeLocalRedirect {
+				continue
+			}
+
+			beModels := getBackendModels(podIDByIP, iter.Seq2[*lb.Backend, statedb.Revision](fe.Backends))
+			appendFrontendMapping(fe, beModels)
+		}
+
 		// Search for any redirected frontends
 		for fe := range frontends.List(txn, lb.FrontendByServiceName(lrp.ServiceID)) {
 			if fe.Type != lb.SVCTypeClusterIP {
