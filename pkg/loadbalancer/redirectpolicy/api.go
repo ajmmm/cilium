@@ -209,6 +209,19 @@ func (lrp *LocalRedirectPolicy) getFrontendMappingModels(
 
 		lrpServiceName := lrp.RedirectServiceName()
 
+		// In the case of a single-port serviceMatcher, it's possible the LRP controller
+		// has created a pseudo-frontend, where the redirectFrontend.toPort[] does not
+		// correlate to the actual service port. So, we map in frontends that are
+		// associated to the pseudo-service.
+		for fe := range frontends.List(txn, lb.FrontendByServiceName(lrpServiceName)) {
+			if fe.Type != lb.SVCTypeLocalRedirect {
+				continue
+			}
+
+			beModels := getBackendModels(podIDByIP, iter.Seq2[*lb.Backend, statedb.Revision](fe.Backends))
+			appendFrontendMapping(fe, beModels)
+		}
+
 		// Search for any redirected frontends
 		for fe := range frontends.List(txn, lb.FrontendByServiceName(lrp.ServiceID)) {
 			if fe.Type != lb.SVCTypeClusterIP {
