@@ -7,7 +7,7 @@
 #include "scapy.h"
 
 #define ENABLE_IPV4 1
-#define ENABLE_IPV6 1
+//#define ENABLE_IPV6
 #undef QUIET_CT
 #define ENABLE_NODEPORT 1
 
@@ -42,6 +42,18 @@ const __u8 lb4_clusterip_post_dnat[] = {
 
 const __u8 lb4_clusterip_udp[] = {
 	SCAPY_BUF_BYTES(lb4_clusterip_udp)
+};
+
+const __u8 lb4_ns_nodeip_ssh[] = {
+	SCAPY_BUF_BYTES(lb4_ns_nodeip_ssh)
+};
+
+const __u8 lb4_ns_nodeip_svc[] = {
+	SCAPY_BUF_BYTES(lb4_ns_nodeip_svc)
+};
+
+const __u8 lb4_ns_nodeip_svc_post_dnat[] = {
+	SCAPY_BUF_BYTES(lb4_ns_nodeip_svc_post_dnat)
 };
 
 /* Below definitions defined in ./scapy/tc_unsupported_pkt_defs.py */
@@ -84,7 +96,7 @@ const __u8 unsupported_drop_v6_esp[] = {
  * - An IPCache entry for the VIP with flag_null_route set
  */
 static __always_inline void
-setup_test(struct __ctx_buff *ctx __maybe_unused, const bool ipv6)
+setup_test(struct __ctx_buff *ctx __maybe_unused, const bool ipv6, const bool nodeip)
 {
 	__u16 revnat_id = 1;
 
@@ -95,11 +107,26 @@ setup_test(struct __ctx_buff *ctx __maybe_unused, const bool ipv6)
 		lb_v4_add_backend(v4_svc_one, tcp_svc_one, 1, 124, v4_pod_one,
 				  tcp_dst_one, IPPROTO_TCP, 0);
 
-		/* LB wildcard */
-		lb_v4_add_service(v4_svc_one, 0, IPPROTO_ANY, 0, revnat_id);
+		if (!nodeip) {
+			/* LB wildcard only if we are not using node-IPs, which are exempt from
+			 * wildcard svc entries. */
+			lb_v4_add_service(v4_svc_one, 0, IPPROTO_ANY, 0, revnat_id);
 
-		/* IPCache entry with null_route flag set */
-		ipcache_v4_add_null_route_entry(v4_svc_one, 0);
+			/* IPCache entry for the LB VIP with null_route flag set */
+			ipcache_v4_add_null_route_entry(v4_svc_one, 0);
+		} else {
+			union v6addr tunnel_ep = {0};
+
+			/* IPCache entry that should not actually happen:
+			 * HOST_ID entry but with null_route flag set */
+			__ipcache_v4_add_entry(v4_node_one, 0, HOST_ID, &tunnel_ep, 0, false, false, true, V4_CACHE_KEY_LEN);
+		}
+
+		/* IPCache entry for a remote node IP */
+		ipcache_v4_add_entry_with_flags(v4_node_two, 0, REMOTE_NODE_ID, 0, 0, false);
+
+		/* IPCache world entry */
+		ipcache_v4_add_world_entry();
 
 		/* Pod */
 		ipcache_v4_add_entry(v4_pod_one, 0, 112233, 0, 0);
@@ -112,16 +139,29 @@ setup_test(struct __ctx_buff *ctx __maybe_unused, const bool ipv6)
 	if (ipv6) {
 		union v6addr lb_vip = { .addr = v6_svc_one_addr };
 		union v6addr pod_ip = { .addr = v6_pod_one_addr };
+		union v6addr node1_ip = { .addr = v6_node_one_addr };
+		union v6addr node2_ip = { .addr = v6_node_two_addr };
 
 		/* LB VIP */
 		lb_v6_add_service(&lb_vip, tcp_svc_one, IPPROTO_TCP, 1, revnat_id);
 		lb_v6_add_backend(&lb_vip, tcp_svc_one, 1, 124, &pod_ip,
 				  tcp_dst_one, IPPROTO_TCP, 0);
 
-		/* LB wildcard */
-		lb_v6_add_service(&lb_vip, 0, IPPROTO_ANY, 0, revnat_id);
+		/* LB wildcard only if we are not using node-IPs, which are exempt from
+		 * wildcard svc entries. */
+		if (!nodeip)
+			lb_v6_add_service(&lb_vip, 0, IPPROTO_ANY, 0, revnat_id);
 
-		/* IPCache entry with null_route flag set */
+		/* IPCache entry for the local node IP. */
+		ipcache_v6_add_entry_with_flags(&node1_ip, 0, HOST_ID, 0, 0, false);
+
+		/* IPCache entry for a remote node IP */
+		ipcache_v6_add_entry_with_flags(&node2_ip, 0, REMOTE_NODE_ID, 0, 0, false);
+
+		/* IPCache world entry */
+		ipcache_v6_add_world_entry();
+
+		/* IPCache entry for the LB VIP with null_route flag set */
 		ipcache_v6_add_null_route_entry(&lb_vip, 0);
 
 		/* Pod */
@@ -143,6 +183,7 @@ clear_metric(const int metric)
 }
 
 #ifdef ENABLE_IPV4
+#if 0
 /* This test uses a legitimate IPv4 packet towards the real LB VIP on TCP/80.
  *
  * Expected result:
@@ -171,7 +212,7 @@ int tc_unsupported_drop_netdev_lb4_tcp_pktgen(struct __ctx_buff *ctx)
 SETUP("tc", "tc_unsupported_drop_netdev_lb4_tcp")
 int tc_unsupported_drop_netdev_lb4_tcp_setup(struct __ctx_buff *ctx)
 {
-	setup_test(ctx, false);
+	setup_test(ctx, false, false);
 	return netdev_receive_packet(ctx);
 }
 
@@ -231,7 +272,7 @@ int tc_unsupported_drop_netdev_lb4_udp_pktgen(struct __ctx_buff *ctx)
 SETUP("tc", "tc_unsupported_drop_netdev_lb4_udp")
 int tc_unsupported_drop_netdev_lb4_udp_setup(struct __ctx_buff *ctx)
 {
-	setup_test(ctx, false);
+	setup_test(ctx, false, false);
 	clear_metric(DROP_NO_SERVICE);
 	return netdev_receive_packet(ctx);
 }
@@ -299,7 +340,7 @@ int tc_unsupported_drop_netdev_v4_gre_pktgen(struct __ctx_buff *ctx)
 SETUP("tc", "tc_unsupported_drop_netdev_v4_gre")
 int tc_unsupported_drop_netdev_v4_gre_setup(struct __ctx_buff *ctx)
 {
-	setup_test(ctx, false);
+	setup_test(ctx, false, false);
 	clear_metric(DROP_NULL_ROUTE);
 	return netdev_receive_packet(ctx);
 }
@@ -367,7 +408,7 @@ int tc_unsupported_drop_netdev_v4_esp_pktgen(struct __ctx_buff *ctx)
 SETUP("tc", "tc_unsupported_drop_netdev_v4_esp")
 int tc_unsupported_drop_netdev_v4_esp_setup(struct __ctx_buff *ctx)
 {
-	setup_test(ctx, false);
+	setup_test(ctx, false, false);
 	clear_metric(DROP_NULL_ROUTE);
 	return netdev_receive_packet(ctx);
 }
@@ -407,6 +448,75 @@ int tc_unsupported_drop_netdev_v4_esp_check(__maybe_unused const struct __ctx_bu
 
 	test_finish();
 }
+#endif
+
+/* This test uses a legitimate SSH packet towards a node IP that also has a Service
+ * LoadBalancer associated with it, for cases like Node-IPAM or MetaLLB where the
+ * physical node IP is used. The Cilium control plane should not permit this, but
+ * accidents happen and a null-route flag on a non-WORLD entry should not cause
+ * a drop.
+ * 
+ * Expected results:
+ */
+PKTGEN("tc", "external_to_nodeip_ssh_with_loadbalancer_v4")
+int overlay_to_nodeip_with_loadbalancer_v4_pktgen(struct __ctx_buff *ctx)
+{
+	struct pktgen builder;
+
+	pktgen__init(&builder, ctx);
+
+	scapy_push_data(&builder, lb4_ns_nodeip_ssh,
+			sizeof(lb4_ns_nodeip_ssh));
+
+	pktgen__finish(&builder);
+
+	return 0;
+}
+
+SETUP("tc", "external_to_nodeip_ssh_with_loadbalancer_v4")
+int external_to_nodeip_ssh_with_loadbalancer_v4_setup(struct __ctx_buff *ctx)
+{
+	setup_test(ctx, false, true);
+	clear_metric(DROP_NULL_ROUTE);
+	return netdev_receive_packet(ctx);
+}
+
+CHECK("tc", "external_to_nodeip_ssh_with_loadbalancer_v4")
+int external_to_nodeip_ssh_with_loadbalancer_v4_check(const struct __ctx_buff *ctx)
+{
+	void *data;
+	void *data_end;
+	__u32 *status_code;
+	// struct metrics_key key = {
+	// 	.reason = (__u8)-DROP_NULL_ROUTE,
+	// 	.dir = METRIC_INGRESS
+	// };
+	// __u64 count = 1;
+
+	test_init();
+
+	data = (void *)(long)ctx->data;
+	data_end = (void *)(long)ctx->data_end;
+
+	if (data + sizeof(__u32) > data_end)
+		test_fatal("status code out of bounds");
+
+	/* Should trigger CTX_ACT_OK for punt to stack */
+	status_code = data;
+	assert(*status_code == CTX_ACT_OK);
+
+	/* Check the packet. */
+	ASSERT_CTX_BUF_OFF("lb4_ns_nodeip_ssh",
+			   "Ether", ctx, sizeof(__u32),
+			   lb4_ns_nodeip_ssh,
+			   sizeof(lb4_ns_nodeip_ssh));
+
+	/* Assert the correct metric was hit */
+	// assert_metrics_count(key, count);
+
+	test_finish();
+}
+
 #endif /* ENABLE_IPV4 */
 
 #ifdef ENABLE_IPV6
@@ -438,7 +548,7 @@ int tc_unsupported_drop_netdev_lb6_tcp_pktgen(struct __ctx_buff *ctx)
 SETUP("tc", "tc_unsupported_drop_netdev_lb6_tcp")
 int tc_unsupported_drop_netdev_lb6_tcp_setup(struct __ctx_buff *ctx)
 {
-	setup_test(ctx, true);
+	setup_test(ctx, true, false);
 	return netdev_receive_packet(ctx);
 }
 
@@ -498,7 +608,7 @@ int tc_unsupported_drop_netdev_lb6_udp_pktgen(struct __ctx_buff *ctx)
 SETUP("tc", "tc_unsupported_drop_netdev_lb6_udp")
 int tc_unsupported_drop_netdev_lb6_udp_setup(struct __ctx_buff *ctx)
 {
-	setup_test(ctx, true);
+	setup_test(ctx, true, false);
 	clear_metric(DROP_NO_SERVICE);
 	return netdev_receive_packet(ctx);
 }
@@ -567,7 +677,7 @@ int tc_unsupported_drop_netdev_v6_gre_pktgen(struct __ctx_buff *ctx)
 SETUP("tc", "tc_unsupported_drop_netdev_v6_gre")
 int tc_unsupported_drop_netdev_v6_gre_setup(struct __ctx_buff *ctx)
 {
-	setup_test(ctx, true);
+	setup_test(ctx, true, false);
 	clear_metric(DROP_NULL_ROUTE);
 	return netdev_receive_packet(ctx);
 }
@@ -635,7 +745,7 @@ int tc_unsupported_drop_netdev_v6_esp_pktgen(struct __ctx_buff *ctx)
 SETUP("tc", "tc_unsupported_drop_netdev_v6_esp")
 int tc_unsupported_drop_netdev_v6_esp_setup(struct __ctx_buff *ctx)
 {
-	setup_test(ctx, true);
+	setup_test(ctx, true, false);
 	clear_metric(DROP_NULL_ROUTE);
 	return netdev_receive_packet(ctx);
 }

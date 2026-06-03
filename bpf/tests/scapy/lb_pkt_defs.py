@@ -5,6 +5,30 @@ from scapy.all import *
 
 from pkt_defs_common import *
 
+# Packets for testing N/W LB path with LoadBalancer that's assigned
+# a Node-IP (e.g. perhaps via Node-IPAM).
+
+lb4_ns_nodeip_ssh = (
+    Ether(src=mac_one, dst=mac_two) /
+    IP(src=v4_ext_one, dst=v4_node_one) /
+    TCP(sport=tcp_src_one, dport=22) /
+    Raw("S"*1)
+)
+
+lb4_ns_nodeip_svc = (
+    Ether(src=mac_one, dst=mac_two) /
+    IP(src=v4_ext_one, dst=v4_node_one) /
+    TCP(sport=tcp_src_one, dport=tcp_svc_one) /
+    Raw("S"*1)
+)
+
+lb4_ns_nodeip_svc_post_dnat = (
+    Ether(src=mac_one, dst=mac_two) /
+    IP(src=v4_ext_one, dst=v4_pod_one) /
+    TCP(sport=tcp_src_one, dport=tcp_dst_one) /
+    Raw("S"*1)
+)
+
 # Packets for testing N/S LB path with ClusterIP.
 
 lb4_clusterip = (
