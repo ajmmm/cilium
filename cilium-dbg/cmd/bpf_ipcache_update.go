@@ -21,6 +21,7 @@ func init() {
 	bpfIPCacheUpdateCmd.PersistentFlags().Uint32("identity", 0, "Identity")
 	bpfIPCacheUpdateCmd.PersistentFlags().Uint8("encryptkey", 0, "Encrypt key")
 	bpfIPCacheUpdateCmd.PersistentFlags().Bool("skiptunnel", false, "Skip tunnel")
+	bpfIPCacheUpdateCmd.PersistentFlags().Bool("nullroute", false, "Null route")
 	bpfIPCacheUpdateCmd.PersistentFlags().Uint16("clusterid", 0, "Cluster ID")
 }
 
@@ -63,9 +64,16 @@ var bpfIPCacheUpdateCmd = &cobra.Command{
 		if err != nil {
 			Usagef(cmd, "Invalid skip tunnel. "+usage)
 		}
+		nullRoute, err := cmd.Flags().GetBool("nullroute")
+		if err != nil {
+			Usagef(cmd, "Invalid null route. "+usage)
+		}
 		var flags ipcache.RemoteEndpointInfoFlags
 		if skipTunnel {
 			flags |= ipcache.FlagSkipTunnel
+		}
+		if nullRoute {
+			flags |= ipcache.FlagNullRoute
 		}
 		clusterID, err := cmd.Flags().GetUint16("clusterid")
 		if err != nil {
