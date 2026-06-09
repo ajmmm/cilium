@@ -451,9 +451,16 @@ func (c *lrpController) updateRedirectBackends(wtxn writer.WriteTxn, lrp *LocalR
 		return false
 	}
 
-	// Port name checks can be skipped in certain cases.
 	switch lrp.FrontendType {
-	case svcFrontendAll, svcFrontendSinglePort, addrFrontendSinglePort:
+	case svcFrontendAll:
+		// svcFrontendAll tells us there's no ports in the serviceMatcher, but there
+		// may be multiple ports in the redirectBackend. Where only one backend port
+		// exists, we can skip name checks.
+		if len(lrp.BackendPorts) <= 1 {
+			portNameMatches = nil
+		}
+	case svcFrontendSinglePort, addrFrontendSinglePort:
+		// In the case of single port redirects, we can skip name checks.
 		portNameMatches = nil
 	}
 
@@ -512,11 +519,16 @@ func (c *lrpController) updateRedirectBackends(wtxn writer.WriteTxn, lrp *LocalR
 	}
 
 	hasServiceBackendFallback := len(serviceBackendsByAddr) != 0
-
-	// Iterate over all the podInfo. In each case, if there's no full addresses
-	// provided, see if we can revert to the fallback data from statedb.
 	for _, podInfo := range pods {
+		// We need backend information for every pod. If there are no addresses
+		// provided for this pod, we should try fall back to the backend data we
+		// have read from StateDB relating to the LRP target service.
 		if len(podInfo.addrs) == 0 && hasServiceBackendFallback {
+			// We should only use fall-back data if we do not need to match port
+			// names. This provides consistency with earlier versions of Cilium.
+			if portNameMatches != nil {
+				continue
+			}
 			for _, podIP := range podInfo.ips {
 				for _, be := range serviceBackendsByAddr[podIP] {
 					appendBackend(*be)
@@ -604,10 +616,9 @@ func shouldRedirectFrontend(log *slog.Logger, lrp *LocalRedirectPolicy, fe *lb.F
 	// 1. First match the frontend based on "RedirectFrontend.ToPorts"
 	// 1.1. All frontends match only when no ports were specified in redirectFrontend.
 	// 	Note: FrontendMapping may be empty if the backend pods do not actually
-	//	have containerPorts in their spec. Thus, we also inspect the LRP
-	//	FrontendType, which provides a signal that there is definitely no ports
-	//	in the redirectFrontend.
-	match := len(lrp.FrontendMappings) == 0 && lrp.FrontendType != svcFrontendAll
+	//	have containerPorts in their spec. Thus, we also inspect the LRP FrontendType,
+	// 	which provides a signal that there is definitely no ports in the redirectFrontend.
+	match := len(lrp.FrontendMappings) == 0 && lrp.FrontendType == svcFrontendAll
 
 	// 1.2. Frontend matches if the port number matches
 	if !match {
@@ -640,7 +651,7 @@ func shouldRedirectFrontend(log *slog.Logger, lrp *LocalRedirectPolicy, fe *lb.F
 	// single port (as that doesn't need to be named).
 	match = len(lrp.BackendPorts) <= 1
 
-	// 2.2 Frontend matches if there is a single frontend port, and multiple backend ports.
+	// 2.2. Frontend matches if there is a single frontend port, and multiple backend ports.
 	// The mapping will be made to the first backend entry, ignoring name. Note that the
 	// protocol has already been validated in the LRP parser, but we check it again here
 	// for safety.
@@ -655,6 +666,7 @@ func shouldRedirectFrontend(log *slog.Logger, lrp *LocalRedirectPolicy, fe *lb.F
 	if !match {
 		log.Debug("XXX shouldRedirectFrontend 2.3",
 			"lrpBackendPortsByName", lrp.BackendPortsByPortName,
+			"feAddr", fe.Address,
 			"fePortName", fe.PortName)
 
 		_, match = lrp.BackendPortsByPortName[fe.PortName]
