@@ -368,7 +368,7 @@ handle_ipv6_cont(struct __ctx_buff *ctx, __u32 secctx, const bool from_host,
 		}
 
 		return ipv6_local_delivery(ctx, l3_off, secctx, magic, ep,
-					   METRIC_INGRESS, from_host, false);
+					   METRIC_INGRESS, from_host, false, false);
 	}
 
 	/* Below remainder is only relevant when traffic is pushed via cilium_host.
@@ -797,7 +797,7 @@ handle_ipv4_cont(struct __ctx_buff *ctx, __u32 secctx, const bool from_host,
 		}
 
 		return ipv4_local_delivery(ctx, l3_off, secctx, magic, ip4, ep,
-					   METRIC_INGRESS, from_host, false, 0);
+					   METRIC_INGRESS, from_host, false, false, 0);
 	}
 
 	/* Below remainder is only relevant when traffic is pushed via cilium_host.

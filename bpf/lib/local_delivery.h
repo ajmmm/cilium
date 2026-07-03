@@ -141,9 +141,11 @@ local_delivery_fill_meta(struct __ctx_buff *ctx, __u32 seclabel,
 static __always_inline int
 local_delivery(struct __ctx_buff *ctx, __u32 seclabel, __u32 magic,
 	       const struct endpoint_info *ep, __u8 direction, bool from_host,
-	       bool from_tunnel, __u32 cluster_id)
+	       bool from_tunnel, bool from_l7lb __maybe_unused, __u32 cluster_id)
 {
+	bool use_redirect = true;
 	bool use_redirect_peer;
+	__u32 interface_ifindex __maybe_unused = CONFIG(interface_ifindex);
 
 #ifdef LOCAL_DELIVERY_METRICS
 	/*
@@ -202,7 +204,14 @@ local_delivery(struct __ctx_buff *ctx, __u32 seclabel, __u32 magic,
 	}
 
 	/* Jumps to destination pod's BPF program to enforce ingress policies. */
-	local_delivery_fill_meta(ctx, seclabel, true, use_redirect_peer,
+	cilium_dbg(ctx, DBG_GENERIC, ep->ifindex, ep->parent_ifindex);
+	cilium_dbg(ctx, DBG_GENERIC, ctx_get_ifindex(ctx), ctx_get_ingress_ifindex(ctx));
+	cilium_dbg(ctx, DBG_GENERIC, 666999, interface_ifindex);
+
+	// if (CONFIG(enable_netkit) && ctx_get_ingress_ifindex(ctx) == 0)
+	// 	use_redirect = !from_l7lb;
+	
+	local_delivery_fill_meta(ctx, seclabel, use_redirect, use_redirect_peer,
 				 from_host, from_tunnel, cluster_id);
 	return tail_call_policy(ctx, ep->lxc_id);
 }
@@ -216,7 +225,7 @@ static __always_inline int ipv6_local_delivery(struct __ctx_buff *ctx, int l3_of
 					       __u32 seclabel, __u32 magic,
 					       const struct endpoint_info *ep,
 					       __u8 direction, bool from_host,
-					       bool from_tunnel)
+					       bool from_tunnel, bool from_l7lb)
 {
 	mac_t router_mac = ep->node_mac;
 	mac_t lxc_mac = ep->mac;
@@ -229,7 +238,7 @@ static __always_inline int ipv6_local_delivery(struct __ctx_buff *ctx, int l3_of
 		return ret;
 
 	return local_delivery(ctx, seclabel, magic, ep, direction, from_host,
-			      from_tunnel, 0);
+			      from_tunnel, from_l7lb, 0);
 }
 
 /* Performs IPv4 L2/L3 handling and delivers the packet to the destination pod
@@ -242,7 +251,8 @@ static __always_inline int ipv4_local_delivery(struct __ctx_buff *ctx, int l3_of
 					       struct iphdr *ip4,
 					       const struct endpoint_info *ep,
 					       __u8 direction, bool from_host,
-					       bool from_tunnel, __u32 cluster_id)
+					       bool from_tunnel, bool from_l7lb,
+					       __u32 cluster_id)
 {
 	mac_t router_mac = ep->node_mac;
 	mac_t lxc_mac = ep->mac;
@@ -255,7 +265,7 @@ static __always_inline int ipv4_local_delivery(struct __ctx_buff *ctx, int l3_of
 		return ret;
 
 	return local_delivery(ctx, seclabel, magic, ep, direction, from_host,
-			      from_tunnel, cluster_id);
+			      from_tunnel, from_l7lb, cluster_id);
 }
 
 /* Performs IPv6 L2/L3 handling and delivers the packet to the cilium_host@ingress
