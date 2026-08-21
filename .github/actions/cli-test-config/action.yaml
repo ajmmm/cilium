@@ -67,58 +67,74 @@ runs:
   steps:
     - id: set-defaults
       shell: bash
+      env:
+        EXTERNAL_CIDR: ${{ inputs.external-cidr }}
+        EXTERNAL_CIDRV6: ${{ inputs.external-cidrv6 }}
+        EXTERNAL_IP: ${{ inputs.external-ip }}
+        EXTERNAL_IPV6: ${{ inputs.external-ipv6 }}
+        EXTERNAL_OTHER_IP: ${{ inputs.external-other-ip }}
+        EXTERNAL_OTHER_IPV6: ${{ inputs.external-other-ipv6 }}
+        EXTERNAL_TARGET: ${{ inputs.external-target }}
+        EXTERNAL_OTHER_TARGET: ${{ inputs.external-other-target }}
+        EXTERNAL_TARGET_CA_NAMESPACE: ${{ inputs.external-target-ca-namespace }}
+        EXTERNAL_TARGET_CA_NAME: ${{ inputs.external-target-ca-name }}
+        EXTERNAL_TARGET_FAKE_DNS: ${{ inputs.external-target-fake-dns }}
+        FLOW_VALIDATION: ${{ inputs.flow-validation }}
+        HUBBLE: ${{ inputs.hubble }}
+        INCLUDE_UNSAFE_TESTS: ${{ inputs.include-unsafe-tests }}
+        TEST_CONCURRENCY: ${{ inputs.test-concurrency }}
+        TESTS: ${{ inputs.tests }}
       run: |
         CONNECTIVITY_TEST_DEFAULTS=("--collect-sysdump-on-failure" \
           "--log-code-owners" \
           "--code-owners=${CILIUM_CLI_CODE_OWNERS_PATHS}" \
           "--exclude-code-owners=${CILIUM_CLI_EXCLUDE_OWNERS}" \
-          "--external-target=${{ inputs.external-target }}" \
-          "--external-cidr=${{ inputs.external-cidr }}" \
-          "--external-ip=${{ inputs.external-ip }}" \
-          "--external-other-ip=${{ inputs.external-other-ip }}" \
-          "--hubble=${{ inputs.hubble }}" \
+          "--external-target=${EXTERNAL_TARGET}" \
+          "--external-cidr=${EXTERNAL_CIDR}" \
+          "--external-ip=${EXTERNAL_IP}" \
+          "--external-other-ip=${EXTERNAL_OTHER_IP}" \
+          "--hubble=${HUBBLE}" \
         )
 
-        if [ -n "${{ inputs.external-cidrv6 }}" ]; then
-          CONNECTIVITY_TEST_DEFAULTS+=("--external-cidrv6=${{ inputs.external-cidrv6 }}")
+        if [ -n "${EXTERNAL_CIDRV6}" ]; then
+          CONNECTIVITY_TEST_DEFAULTS+=("--external-cidrv6=${EXTERNAL_CIDRV6}")
         fi
-        if [ -n "${{ inputs.external-ipv6 }}" ]; then
-          CONNECTIVITY_TEST_DEFAULTS+=("--external-ipv6=${{ inputs.external-ipv6 }}")
+        if [ -n "${EXTERNAL_IPV6}" ]; then
+          CONNECTIVITY_TEST_DEFAULTS+=("--external-ipv6=${EXTERNAL_IPV6}")
         fi
-        if [ -n "${{ inputs.external-other-ipv6 }}" ]; then
-          CONNECTIVITY_TEST_DEFAULTS+=("--external-other-ipv6=${{ inputs.external-other-ipv6 }}")
+        if [ -n "${EXTERNAL_OTHER_IPV6}" ]; then
+          CONNECTIVITY_TEST_DEFAULTS+=("--external-other-ipv6=${EXTERNAL_OTHER_IPV6}")
         fi
-        if [ -n "${{ inputs.external-other-target }}" ]; then
-          CONNECTIVITY_TEST_DEFAULTS+=("--external-other-target=${{ inputs.external-other-target }}")
+        if [ -n "${EXTERNAL_OTHER_TARGET}" ]; then
+          CONNECTIVITY_TEST_DEFAULTS+=("--external-other-target=${EXTERNAL_OTHER_TARGET}")
         fi
-        if [ -n "${{ inputs.external-target-ca-namespace }}" ]; then
-          CONNECTIVITY_TEST_DEFAULTS+=("--external-target-ca-namespace=${{ inputs.external-target-ca-namespace }}")
+        if [ -n "${EXTERNAL_TARGET_CA_NAMESPACE}" ]; then
+          CONNECTIVITY_TEST_DEFAULTS+=("--external-target-ca-namespace=${EXTERNAL_TARGET_CA_NAMESPACE}")
         fi
-        if [ -n "${{ inputs.external-target-ca-name }}" ]; then
-          CONNECTIVITY_TEST_DEFAULTS+=("--external-target-ca-name=${{ inputs.external-target-ca-name }}")
+        if [ -n "${EXTERNAL_TARGET_CA_NAME}" ]; then
+          CONNECTIVITY_TEST_DEFAULTS+=("--external-target-ca-name=${EXTERNAL_TARGET_CA_NAME}")
         fi
 
-
-        if [ "${{ inputs.external-target-fake-dns }}" == "true" ]; then
+        if [ "${EXTERNAL_TARGET_FAKE_DNS}" == "true" ]; then
           CONNECTIVITY_TEST_DEFAULTS+=("--external-target-fake-dns")
         fi
 
-        if [ "${{ inputs.include-unsafe-tests }}" == "true" ]; then
+        if [ "${INCLUDE_UNSAFE_TESTS}" == "true" ]; then
           CONNECTIVITY_TEST_DEFAULTS+=("--include-unsafe-tests")
         fi
 
-        if [ "${{ inputs.flow-validation }}" == "true" ]; then
+        if [ "${FLOW_VALIDATION}" == "true" ]; then
           CONNECTIVITY_TEST_DEFAULTS+=("--flow-validation=enabled")
         else
           CONNECTIVITY_TEST_DEFAULTS+=("--flow-validation=disabled")
         fi
 
-        if [ -n "${{ inputs.test-concurrency }}" ]; then
-          CONNECTIVITY_TEST_DEFAULTS+=("--test-concurrency=${{ inputs.test-concurrency }}")
+        if [ -n "${TEST_CONCURRENCY}" ]; then
+          CONNECTIVITY_TEST_DEFAULTS+=("--test-concurrency=${TEST_CONCURRENCY}")
         fi
 
-        if [ -n "${{ inputs.tests }}" ]; then
-          CONNECTIVITY_TEST_DEFAULTS+=("--test=${{ inputs.tests }}")
+        if [ -n "${TESTS}" ]; then
+          CONNECTIVITY_TEST_DEFAULTS+=("--test=${TESTS}")
         fi
 
         echo test_flags=${CONNECTIVITY_TEST_DEFAULTS[*]} >> $GITHUB_OUTPUT
