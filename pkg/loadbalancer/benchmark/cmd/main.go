@@ -14,8 +14,11 @@ import (
 	"github.com/cilium/cilium/pkg/logging"
 )
 
-// Test size is the number of services. For each service, there is a single endpointslice with a single endpoint with a single port.
+// Test size is the number of services. Each service has a single EndpointSlice.
 var testSize = flag.Int("services", 50000, "number of services to create")
+var podsPerService = flag.Int("pods-per-service", 1, "number of backend pods to create per service")
+var enableLRP = flag.Bool("enable-lrp", false, "create a node-local-dns LRP for each service")
+var lrpSharedNamespace = flag.Bool("lrp-shared-namespace", false, "place all LRP benchmark objects in one namespace")
 var iterations = flag.Int("iterations", 10, "number of benchmark runs to perform")
 
 // Small workloads may not fill the reflector event buffer. In that case, the
@@ -45,11 +48,14 @@ func main() {
 	if err := level.UnmarshalText([]byte(*loglevel)); err != nil {
 		panic(err)
 	}
-	benchmark.RunBenchmark(
-		*testSize,
-		*iterations,
-		*reflectorWaitTime,
-		level,
-		*validate,
-	)
+	benchmark.RunBenchmark(benchmark.Config{
+		Services:           *testSize,
+		PodsPerService:     *podsPerService,
+		Iterations:         *iterations,
+		LRPEnabled:         *enableLRP,
+		LRPSharedNamespace: *lrpSharedNamespace,
+		ReflectorWaitTime:  *reflectorWaitTime,
+		LogLevel:           level,
+		Validate:           *validate,
+	})
 }
