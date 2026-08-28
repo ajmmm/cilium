@@ -2265,7 +2265,7 @@ func (ct *ConnectivityTest) GetGatewayNodeInternalIP(egressGatewayNode string, i
 	return netip.Addr{}
 }
 
-func (ct *ConnectivityTest) getConnDisruptClientEgressGatewayPodIPs(ctx context.Context) ([]string, error) {
+func (ct *ConnectivityTest) getConnDisruptClientEgressGatewayPodIPv4s(ctx context.Context) ([]string, error) {
 	var appLabels []string
 	appLabels = append(appLabels, fmt.Sprintf("app=%s", testConnDisruptClientEgressGatewayOnGatewayNodeAppLabel))
 	appLabels = append(appLabels, fmt.Sprintf("app=%s", testConnDisruptClientEgressGatewayOnNonGatewayNodeAppLabel))
@@ -2274,11 +2274,15 @@ func (ct *ConnectivityTest) getConnDisruptClientEgressGatewayPodIPs(ctx context.
 	for _, appLabel := range appLabels {
 		connDisruptPods, err := ct.K8sClient().ListPods(ctx, ct.Params().TestNamespace, metav1.ListOptions{LabelSelector: appLabel})
 		if err != nil {
-			return nil, fmt.Errorf("unable to list pods with lable %s: %w", appLabel, err)
+			return nil, fmt.Errorf("unable to list pods with label %s: %w", appLabel, err)
 		}
 
 		for _, connDisruptPod := range connDisruptPods.Items {
-			podIPs = append(podIPs, connDisruptPod.Status.PodIP)
+			podIPv4 := (Pod{Pod: &connDisruptPod}).Address(features.IPFamilyV4)
+			if podIPv4 == "" {
+				return nil, fmt.Errorf("unable to find IPv4 address for pod %s/%s", connDisruptPod.Namespace, connDisruptPod.Name)
+			}
+			podIPs = append(podIPs, podIPv4)
 		}
 	}
 
@@ -2288,7 +2292,7 @@ func (ct *ConnectivityTest) getConnDisruptClientEgressGatewayPodIPs(ctx context.
 func (ct *ConnectivityTest) GetConnDisruptEgressPolicyEntries(ctx context.Context, ciliumPod Pod) ([]BPFEgressGatewayPolicyEntry, error) {
 	var targetEntries []BPFEgressGatewayPolicyEntry
 
-	podIPs, err := ct.getConnDisruptClientEgressGatewayPodIPs(ctx)
+	podIPs, err := ct.getConnDisruptClientEgressGatewayPodIPv4s(ctx)
 	if err != nil {
 		return nil, err
 	}
