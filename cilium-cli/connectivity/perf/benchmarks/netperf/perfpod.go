@@ -144,7 +144,7 @@ func (s *netPerf) Run(ctx context.Context, t *check.Test) {
 							clientProfile = clientProfiler.Run(ctx, a)
 						}
 
-						perfResult := NetperfCmd(ctx, server.Pod.Status.PodIP, k, a)
+						perfResult := NetperfCmd(ctx, server.Address(features.IPFamilyV4), k, a)
 						t.Context().PerfResults = append(t.Context().PerfResults, common.PerfSummary{PerfTest: k, Result: perfResult})
 
 						if err := serverProfile.Save(testName+"_server.perf", a); err != nil {

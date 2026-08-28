@@ -75,7 +75,7 @@ func (s *bandwidth) Run(ctx context.Context, t *check.Test) {
 							MsgSize:  1500000,
 							NetQos:   true,
 						}
-						perfResult := NetperfCmd(ctx, server.Pod.Status.PodIP, k, a)
+						perfResult := NetperfCmd(ctx, server.Address(features.IPFamilyV4), k, a)
 						s.Lock()
 						tputSum[c.Name()] += uint64(perfResult.ThroughputMetric.Throughput / 1000000)
 						s.Unlock()
