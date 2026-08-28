@@ -77,20 +77,12 @@ type podToPodEncryptionV2 struct {
 	encryptMode       features.Status
 	ipv4Enabled       features.Status
 	ipv6Enabled       features.Status
-	usesTunnelRouting bool
+	usesTunnelRouting map[features.IPFamily]bool
 
-	// the egress device, on the client node, that client->server traffic will
-	// leave on.
-	//
-	// NOTE: this test assumes that if IPv6 is enabled the same egress device
-	// is used to push client traffic toward the server.
-	// this will almost always be the case.
-	clientEgressDev string
-	// the egress device, on the server node, that server->client (return traffic)
-	// will leave on.
-	//
-	// see clientEgressDev NOTE:
-	serverEgressDev string
+	// Egress devices used by client-to-server and return traffic, indexed by
+	// the inner traffic's IP family.
+	clientEgressDev map[features.IPFamily]string
+	serverEgressDev map[features.IPFamily]string
 
 	// pcap filter used to detect leaks on the client side
 	clientFilter4 string
@@ -115,17 +107,23 @@ func (s *podToPodEncryptionV2) Name() string {
 
 // resolveEgressDevice resolves the egress device used in the provided host
 // network namespace used to send traffic to dst.
-func (s *podToPodEncryptionV2) resolveEgressDevice(ctx context.Context, srcHostNS *check.Pod, src, dst *check.Pod) (string, error) {
+func (s *podToPodEncryptionV2) resolveEgressDevice(ctx context.Context, srcHostNS *check.Pod, src, dst *check.Pod, ipFamily features.IPFamily) (string, error) {
 	// if tunnel encap is used, the packet will be encapsulated before
 	// leaving the host, thus, use the tunnel endpoint IP rather then the
 	// pod IP for route lookup.
 	var srcIP, dstIP string
-	if s.usesTunnelRouting {
+	if s.usesTunnelRouting[ipFamily] {
+		// The tunnel underlay family is independent of the inner traffic family.
+		// Pod.Status.HostIP identifies the node address used by Kubernetes and
+		// preserves the existing tunnel endpoint selection.
 		srcIP = src.Pod.Status.HostIP
 		dstIP = dst.Pod.Status.HostIP
 	} else { // If native or hybrid, pod to pod traffic is natively routed.
-		srcIP = src.Pod.Status.PodIP
-		dstIP = dst.Pod.Status.PodIP
+		srcIP = src.Address(ipFamily)
+		dstIP = dst.Address(ipFamily)
+	}
+	if srcIP == "" || dstIP == "" {
+		return "", fmt.Errorf("Failed to find %s addresses for egress device lookup", ipFamily)
 	}
 
 	// issue `ip route get dstIP from srcIP iif cilium_host` for destination in provided
@@ -139,11 +137,16 @@ func (s *podToPodEncryptionV2) resolveEgressDevice(ctx context.Context, srcHostN
 	//
 	// example json output:
 	// [{"dst":"192.168.109.96","gateway":"192.168.128.1","dev":"ens5","prefsrc":"192.168.159.49","flags":[],"uid":0,"cache":[]}]
+	cmd := []string{"ip"}
+	if features.GetIPFamily(dstIP) == features.IPFamilyV6 {
+		cmd = append(cmd, "-6")
+	}
+	cmd = append(cmd, "-j", "route", "get", dstIP, "from", srcIP, "iif", "cilium_host")
 	out, err := srcHostNS.K8sClient.ExecInPod(ctx,
 		srcHostNS.Pod.Namespace,
 		srcHostNS.Pod.Name,
 		"",
-		[]string{"ip", "-j", "route", "get", dstIP, "from", srcIP, "iif", "cilium_host"})
+		cmd)
 
 	if err != nil {
 		return "", fmt.Errorf("Failed to resolve egress device for: %w", err)
@@ -174,23 +177,23 @@ func (s *podToPodEncryptionV2) resolveEgressDevice(ctx context.Context, srcHostN
 // in native routing mode this will be an "ip route get {dst_pod_ip}" while in
 // tunnel mode this will be "ip route get {dst_node_ip}" as the packet will be
 // tunnel encap'd before departure.
-func (s *podToPodEncryptionV2) resolveClientEgressDevice(ctx context.Context) (string, error) {
+func (s *podToPodEncryptionV2) resolveClientEgressDevice(ctx context.Context, ipFamily features.IPFamily) (string, error) {
 	// we have a context, may as well check it
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("Context already cancelled")
 	}
 
-	return s.resolveEgressDevice(ctx, s.clientHostNS, s.client, s.server)
+	return s.resolveEgressDevice(ctx, s.clientHostNS, s.client, s.server, ipFamily)
 }
 
 // resolveServerEgressDevice is the similar to resolveClientEgressDevice but
 // finds the egress device for client return traffic from the server.
-func (s *podToPodEncryptionV2) resolveServerEgressDevice(ctx context.Context) (string, error) {
+func (s *podToPodEncryptionV2) resolveServerEgressDevice(ctx context.Context, ipFamily features.IPFamily) (string, error) {
 	// we have a context, may as well check it
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("Context already cancelled")
 	}
-	return s.resolveEgressDevice(ctx, s.serverHostNS, s.server, s.client)
+	return s.resolveEgressDevice(ctx, s.serverHostNS, s.server, s.client, ipFamily)
 }
 
 // tunnelTCPDumpFilters4 will generate the required TCPDump filters for leak
@@ -305,7 +308,7 @@ func (s *podToPodEncryptionV2) resolveTCPDumpFilters4(ctx context.Context) (clie
 	}
 
 	// handle tunneling mode.
-	if s.usesTunnelRouting {
+	if s.usesTunnelRouting[features.IPFamilyV4] {
 		return s.tunnelTCPDumpFilters4(ctx)
 	}
 
@@ -416,7 +419,7 @@ func (s *podToPodEncryptionV2) resolveTCPDumpFilters6(ctx context.Context) (clie
 		return "", "", fmt.Errorf("Context already cancelled")
 	}
 
-	if s.usesTunnelRouting {
+	if s.usesTunnelRouting[features.IPFamilyV6] {
 		clientFilter, serverFilter, err = s.tunnelTCPDumpFilters6(ctx)
 	} else {
 		clientFilter, serverFilter, err = s.nativeTCPDumpFilters6(ctx)
@@ -465,21 +468,21 @@ func (s *podToPodEncryptionV2) startSniffers(ctx context.Context, t *check.Test)
 	var cancel func() error
 
 	if s.ipv4Enabled.Enabled {
-		s.clientSniffer4, cancel, err = sniff.Sniff(ctx, s.Name(), s.clientHostNS, s.clientEgressDev, s.clientFilter4, mode, sniff.SniffKillTimeout, t)
+		s.clientSniffer4, cancel, err = sniff.Sniff(ctx, s.Name(), s.clientHostNS, s.clientEgressDev[features.IPFamilyV4], s.clientFilter4, mode, sniff.SniffKillTimeout, t)
 		if err != nil {
 			return fmt.Errorf("Failed to start sniffer on client: %w", err)
 		}
 		s.finalizers = append(s.finalizers, cancel)
 		t.Debugf("started client tcpdump sniffer: [client: %s] [node: %s] [dev: %s] [filter: %s] [mode: %s]",
-			s.client.Pod.Name, s.client.Pod.Spec.NodeName, s.clientEgressDev, s.clientFilter4, mode)
+			s.client.Pod.Name, s.client.Pod.Spec.NodeName, s.clientEgressDev[features.IPFamilyV4], s.clientFilter4, mode)
 
-		s.serverSniffer4, cancel, err = sniff.Sniff(ctx, s.Name(), s.serverHostNS, s.serverEgressDev, s.serverFilter4, mode, sniff.SniffKillTimeout, t)
+		s.serverSniffer4, cancel, err = sniff.Sniff(ctx, s.Name(), s.serverHostNS, s.serverEgressDev[features.IPFamilyV4], s.serverFilter4, mode, sniff.SniffKillTimeout, t)
 		if err != nil {
 			return fmt.Errorf("Failed to start sniffer on server: %w", err)
 		}
 		s.finalizers = append(s.finalizers, cancel)
 		t.Debugf("started server tcpdump sniffer: [server: %s] [node: %s] [dev: %s] [filter: %s] [mode: %s]",
-			s.server.Pod.Name, s.server.Pod.Spec.NodeName, s.serverEgressDev, s.serverFilter4, mode)
+			s.server.Pod.Name, s.server.Pod.Spec.NodeName, s.serverEgressDev[features.IPFamilyV4], s.serverFilter4, mode)
 	}
 
 	// if IPv6 is enabled on the cluster start IPv6 specific sniffers.
@@ -505,21 +508,21 @@ func (s *podToPodEncryptionV2) startSniffers(ctx context.Context, t *check.Test)
 		// write to the same pcap file and this can break validation.
 		name := fmt.Sprintf("%s-ipv6", s.Name())
 
-		s.clientSniffer6, cancel, err = sniff.Sniff(ctx, name, s.clientHostNS, s.clientEgressDev, s.clientFilter6, mode, sniff.SniffKillTimeout, t)
+		s.clientSniffer6, cancel, err = sniff.Sniff(ctx, name, s.clientHostNS, s.clientEgressDev[features.IPFamilyV6], s.clientFilter6, mode, sniff.SniffKillTimeout, t)
 		if err != nil {
 			return fmt.Errorf("Failed to start sniffer on client for IPv6: %w", err)
 		}
 		s.finalizers = append(s.finalizers, cancel)
 		t.Debugf("started client tcpdump sniffer for IPv6: [client: %s] [node: %s] [dev: %s] [filter: %s] [mode: %s]",
-			s.client.Pod.Name, s.client.Pod.Spec.NodeName, s.clientEgressDev, s.clientFilter6, mode)
+			s.client.Pod.Name, s.client.Pod.Spec.NodeName, s.clientEgressDev[features.IPFamilyV6], s.clientFilter6, mode)
 
-		s.serverSniffer6, cancel, err = sniff.Sniff(ctx, name, s.serverHostNS, s.serverEgressDev, s.serverFilter6, mode, sniff.SniffKillTimeout, t)
+		s.serverSniffer6, cancel, err = sniff.Sniff(ctx, name, s.serverHostNS, s.serverEgressDev[features.IPFamilyV6], s.serverFilter6, mode, sniff.SniffKillTimeout, t)
 		if err != nil {
 			return fmt.Errorf("Failed to start sniffer on server for IPv6: %w", err)
 		}
 		s.finalizers = append(s.finalizers, cancel)
 		t.Debugf("started server tcpdump sniffer for IPv6: [server: %s] [node: %s] [dev: %s] [filter: %s] [mode: %s]",
-			s.server.Pod.Name, s.server.Pod.Spec.NodeName, s.serverEgressDev, s.serverFilter6, mode)
+			s.server.Pod.Name, s.server.Pod.Spec.NodeName, s.serverEgressDev[features.IPFamilyV6], s.serverFilter6, mode)
 	}
 
 	return nil
@@ -614,13 +617,20 @@ func (s *podToPodEncryptionV2) Run(ctx context.Context, t *check.Test) {
 		t.Fatalf("Failed to acquire a server pod\n")
 	}
 
-	// usesTunnelRouting determines if pod-to-pod traffic between s.client and s.server
-	// will be tunnel encap'd.
+	// usesTunnelRouting determines, for each IP family, if pod-to-pod traffic
+	// between s.client and s.server will be tunnel encap'd.
 	// This is true when tunnel mode is enabled and the client and server pods are
 	// not in the same subnet, as determined by the cluster's subnet topology.
 	// The subnet check is needed in case of hybrid routing mode,
 	// where pod-to-pod traffic in the same subnet is natively routed.
-	s.usesTunnelRouting = tunnelMode.Enabled && !features.SameSubnet(s.client.Pod.Status.PodIP, s.server.Pod.Status.PodIP, subnetTopology.Mode)
+	s.usesTunnelRouting = make(map[features.IPFamily]bool)
+	s.clientEgressDev = make(map[features.IPFamily]string)
+	s.serverEgressDev = make(map[features.IPFamily]string)
+
+	for _, ipFamily := range s.ct.Features.IPFamilies() {
+		s.usesTunnelRouting[ipFamily] = tunnelMode.Enabled && !features.SameSubnet(
+			s.client.Address(ipFamily), s.server.Address(ipFamily), subnetTopology.Mode)
+	}
 
 	// grab host namespace pods for accessing the network namespaces of client
 	// and server pods.
@@ -636,18 +646,19 @@ func (s *podToPodEncryptionV2) Run(ctx context.Context, t *check.Test) {
 		s.serverHostNS = &serverHostNS
 	}
 
-	// resolve the egress device on the client where traffic toward the server
-	// will leave the host, and the egress device on the server where the return
-	// traffic will leave the host.
+	// Resolve the egress devices on which traffic for each enabled family will
+	// leave the client and server hosts.
 	var err error
-	s.clientEgressDev, err = s.resolveClientEgressDevice(ctx)
-	if err != nil {
-		t.Fatalf("Failed to resolve egress device for client: %v", err)
-	}
+	for _, ipFamily := range s.ct.Features.IPFamilies() {
+		s.clientEgressDev[ipFamily], err = s.resolveClientEgressDevice(ctx, ipFamily)
+		if err != nil {
+			t.Fatalf("Failed to resolve %s egress device for client: %v", ipFamily, err)
+		}
 
-	s.serverEgressDev, err = s.resolveServerEgressDevice(ctx)
-	if err != nil {
-		t.Fatalf("Failed to resolve egress device for server: %v", err)
+		s.serverEgressDev[ipFamily], err = s.resolveServerEgressDevice(ctx, ipFamily)
+		if err != nil {
+			t.Fatalf("Failed to resolve %s egress device for server: %v", ipFamily, err)
+		}
 	}
 
 	// resolve the client and server's pcap filters used for leak detection,
