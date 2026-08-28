@@ -31,9 +31,12 @@ func (s *podToK8sLocal) Name() string {
 func (s *podToK8sLocal) Run(ctx context.Context, t *check.Test) {
 	ct := t.Context()
 	k8sSvc := ct.K8sService()
-	ipFamilies := []features.IPFamily{features.IPFamilyV4, features.IPFamilyV6}
 	for _, pod := range ct.ControlPlaneClientPods() {
-		for _, ipFamily := range ipFamilies {
+		t.ForEachIPFamily(func(ipFamily features.IPFamily) {
+			if k8sSvc.Address(ipFamily) == "" {
+				return
+			}
+
 			actionName := fmt.Sprintf("curl-k8s-from-pod-%s-%s", pod.Name(), ipFamily)
 			t.NewAction(s, actionName, &pod, k8sSvc, ipFamily).Run(func(a *check.Action) {
 				a.ExecInPod(ctx, a.CurlCommand(k8sSvc))
@@ -44,6 +47,6 @@ func (s *podToK8sLocal) Run(ctx context.Context, t *check.Test) {
 
 				a.ValidateMetrics(ctx, pod, a.GetEgressMetricsRequirements())
 			})
-		}
+		})
 	}
 }
