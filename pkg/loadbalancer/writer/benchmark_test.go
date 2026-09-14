@@ -282,6 +282,8 @@ func Benchmark_UpsertBackends_SharedBackendManyServices(b *testing.B) {
 				b.Fatal(err)
 			}
 		}
-		wtxn.Commit()
+		// Abort so every iteration measures inserting the flattened backend rows
+		// instead of replacing rows committed by the previous iteration.
+		wtxn.Abort()
 	}
 }
