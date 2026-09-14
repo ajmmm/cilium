@@ -1620,6 +1620,7 @@ func (ops *BPFOps) sortedBackends(fe *loadbalancer.Frontend) []backendWithRevisi
 		if be.UnhealthyUpdatedAt == nil && quarantined.Has(be.Address) {
 			// Backend was previously quarantined and we have not health checked it
 			// yet. Use the restored health until health check is performed.
+			be = be.Clone()
 			be.Unhealthy = true
 		}
 		bes = append(bes, backendWithRevision{be, rev})

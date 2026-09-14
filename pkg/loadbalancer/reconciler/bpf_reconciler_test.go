@@ -17,6 +17,7 @@ import (
 	"github.com/cilium/statedb"
 	"github.com/cilium/statedb/reconciler"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/cilium/cilium/pkg/annotation"
 	"github.com/cilium/cilium/pkg/clustermesh/types"
@@ -94,6 +95,33 @@ func withClusterID(be loadbalancer.L3n4Addr, clusterID uint32) loadbalancer.L3n4
 		types.AddrClusterFrom(be.AddrCluster().Addr(), clusterID),
 		be.Port(), be.Scope(),
 	)
+}
+
+func TestSortedBackendsDoesNotMutateBackend(t *testing.T) {
+	frontendAddr := parseAddrPort("10.0.0.1:80")
+	backendAddr := parseAddrPort("10.1.0.1:80")
+	backend := &loadbalancer.Backend{
+		Address: backendAddr,
+		State:   loadbalancer.BackendStateActive,
+	}
+	frontend := &loadbalancer.Frontend{
+		FrontendParams: loadbalancer.FrontendParams{Address: frontendAddr},
+		Backends: func(yield func(*loadbalancer.Backend, statedb.Revision) bool) {
+			yield(backend, 1)
+		},
+	}
+	ops := &BPFOps{
+		restoredQuarantinedBackends: map[loadbalancer.L3n4Addr]sets.Set[loadbalancer.L3n4Addr]{
+			frontendAddr: sets.New(backendAddr),
+		},
+	}
+
+	sorted := ops.sortedBackends(frontend)
+
+	require.Len(t, sorted, 1)
+	require.True(t, sorted[0].Unhealthy)
+	require.False(t, backend.Unhealthy)
+	require.NotSame(t, backend, sorted[0].Backend)
 }
 
 func parseAddrPort(s string) loadbalancer.L3n4Addr {
