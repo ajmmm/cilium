@@ -69,6 +69,7 @@ func syncBackendNeighbors(p backendNeighborSyncParams, ctx context.Context, init
 	}
 
 	refcounts := make(counter.Counter[netip.Addr])
+	backends := make(map[loadbalancer.BackendKey]struct{})
 
 	// Process the changes in batches every 50 milliseconds.
 	limiter := rate.NewLimiter(50*time.Millisecond, 1)
@@ -80,27 +81,32 @@ func syncBackendNeighbors(p backendNeighborSyncParams, ctx context.Context, init
 		changes, watch := changeIter.Next(rx)
 		for change := range changes {
 			addr := change.Object.Address.Addr()
-			owner := neighbor.ForwardableIPOwner{
-				Type: neighbor.ForwardableIPOwnerService,
-				ID:   change.Object.Address.StringID(),
+			key := loadbalancer.BackendKey{
+				ServiceName:    change.Object.ServiceName,
+				Address:        change.Object.Address,
+				SourcePriority: change.Object.SourcePriority(),
 			}
 
 			if change.Deleted {
-				if !refcounts.Has(addr) {
+				if _, ok := backends[key]; !ok {
 					continue
 				}
+				delete(backends, key)
 				if refcounts.Delete(addr) {
-					err := p.ForwardableIPManager.Delete(addr, owner)
+					err := p.ForwardableIPManager.Delete(addr, forwardableIPOwner(addr))
 					if err != nil {
 						p.Logger.Error("Failed to delete forwardable IP", logfields.Error, err)
 					}
 				}
 			} else {
-				if refcounts.Add(addr) {
-					err := p.ForwardableIPManager.Insert(addr, owner)
-					if err != nil {
-						p.Logger.Error("Failed to insert forwardable IP", logfields.Error, err)
-					}
+				if _, ok := backends[key]; !ok {
+					backends[key] = struct{}{}
+					refcounts.Add(addr)
+				}
+				// Use one stable owner per IP. Insert is idempotent and is also
+				// retried on updates in case a previous insertion failed.
+				if err := p.ForwardableIPManager.Insert(addr, forwardableIPOwner(addr)); err != nil {
+					p.Logger.Error("Failed to insert forwardable IP", logfields.Error, err)
 				}
 			}
 		}
@@ -119,5 +125,12 @@ func syncBackendNeighbors(p backendNeighborSyncParams, ctx context.Context, init
 		if err := limiter.Wait(ctx); err != nil {
 			return err
 		}
+	}
+}
+
+func forwardableIPOwner(addr netip.Addr) neighbor.ForwardableIPOwner {
+	return neighbor.ForwardableIPOwner{
+		Type: neighbor.ForwardableIPOwnerService,
+		ID:   addr.String(),
 	}
 }
