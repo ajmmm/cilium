@@ -149,7 +149,8 @@ func socketTerminationLoop(p socketTerminationParams, sd sockets.SocketDestroyer
 	defer limiter.Stop()
 
 	for {
-		changes, watch := changeIter.Next(p.DB.ReadTxn())
+		txn := p.DB.ReadTxn()
+		changes, watch := changeIter.Next(txn)
 		for change := range changes {
 			backend := change.Object
 
@@ -165,7 +166,7 @@ func socketTerminationLoop(p socketTerminationParams, sd sockets.SocketDestroyer
 
 			// Terminate the sockets connected to backends that have been either
 			// deleted or which are no longer considered viable.
-			if change.Deleted || !backend.IsAlive() {
+			if shouldTerminateBackendChange(txn, p.Backends, change) {
 				opSupported := terminateConnectionsToBackend(p, sd, backend.Address)
 				if !opSupported {
 					// The kernel doesn't support socket termination. We can stop processing.
@@ -186,6 +187,18 @@ func socketTerminationLoop(p socketTerminationParams, sd sockets.SocketDestroyer
 			return err
 		}
 	}
+}
+
+func shouldTerminateBackendChange(txn statedb.ReadTxn, backends statedb.Table[*lb.Backend], change statedb.Change[*lb.Backend]) bool {
+	// A backend address can have multiple source-specific rows. Only the
+	// preferred row determines whether traffic to the address is viable.
+	bes, _ := lb.ListBackendsByServiceNameAndAddress(txn, backends, change.Object.ServiceName, change.Object.Address)
+	for backend := range lb.PreferredBackendsByAddress(bes) {
+		return !backend.IsAlive()
+	}
+
+	// No row remains, so this change removed the last usable backend.
+	return true
 }
 
 // terminateConnectionsToBackend closes UDP & TCP connection sockets that match

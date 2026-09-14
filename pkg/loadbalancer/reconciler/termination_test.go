@@ -48,6 +48,78 @@ func TestPrivilegedSocketTermination_ControlPlane(t *testing.T) {
 	}
 }
 
+func TestShouldTerminateBackendChange(t *testing.T) {
+	db := statedb.New()
+	backends, err := loadbalancer.NewBackendsTable(db)
+	require.NoError(t, err)
+
+	serviceName := loadbalancer.NewServiceName("test", "service")
+	addr := loadbalancer.NewL3n4Addr(
+		loadbalancer.TCP,
+		cmtypes.MustParseAddrCluster("10.0.0.1"),
+		80,
+		loadbalancer.ScopeExternal,
+	)
+	preferred := &loadbalancer.Backend{
+		ServiceName: serviceName,
+		Address:     addr,
+		State:       loadbalancer.BackendStateActive,
+		Source:      source.KubeAPIServer,
+	}
+	preferred.SetSourcePriority(0)
+	fallback := preferred.Clone()
+	fallback.Source = source.Kubernetes
+	fallback.SetSourcePriority(1)
+
+	insert := func(backendsToInsert ...*loadbalancer.Backend) {
+		wtxn := db.WriteTxn(backends)
+		for _, backend := range backendsToInsert {
+			_, _, err := backends.Insert(wtxn, backend)
+			require.NoError(t, err)
+		}
+		wtxn.Commit()
+	}
+	delete := func(backend *loadbalancer.Backend) {
+		wtxn := db.WriteTxn(backends)
+		_, _, err := backends.Delete(wtxn, backend)
+		require.NoError(t, err)
+		wtxn.Commit()
+	}
+
+	insert(preferred, fallback)
+	rtxn := db.ReadTxn()
+	require.False(t, shouldTerminateBackendChange(rtxn, backends, statedb.Change[*loadbalancer.Backend]{Object: fallback, Deleted: true}))
+
+	delete(preferred)
+	rtxn = db.ReadTxn()
+	require.False(t, shouldTerminateBackendChange(rtxn, backends, statedb.Change[*loadbalancer.Backend]{Object: preferred, Deleted: true}))
+
+	delete(fallback)
+	rtxn = db.ReadTxn()
+	require.True(t, shouldTerminateBackendChange(rtxn, backends, statedb.Change[*loadbalancer.Backend]{Object: fallback, Deleted: true}))
+
+	preferred = preferred.Clone()
+	fallback = fallback.Clone()
+	insert(preferred, fallback)
+	fallbackMaintenance := fallback.Clone()
+	fallbackMaintenance.State = loadbalancer.BackendStateMaintenance
+	wtxn := db.WriteTxn(backends)
+	_, _, err = backends.Insert(wtxn, fallbackMaintenance)
+	require.NoError(t, err)
+	wtxn.Commit()
+	rtxn = db.ReadTxn()
+	require.False(t, shouldTerminateBackendChange(rtxn, backends, statedb.Change[*loadbalancer.Backend]{Object: fallbackMaintenance}))
+
+	preferredMaintenance := preferred.Clone()
+	preferredMaintenance.State = loadbalancer.BackendStateMaintenance
+	wtxn = db.WriteTxn(backends)
+	_, _, err = backends.Insert(wtxn, preferredMaintenance)
+	require.NoError(t, err)
+	wtxn.Commit()
+	rtxn = db.ReadTxn()
+	require.True(t, shouldTerminateBackendChange(rtxn, backends, statedb.Change[*loadbalancer.Backend]{Object: preferredMaintenance}))
+}
+
 func testSocketTermination(t *testing.T, hostOnly bool) {
 	var beAddr loadbalancer.L3n4Addr
 	require.NoError(t, beAddr.ParseFromString("1.0.0.1:80/UDP"))
