@@ -46,12 +46,14 @@ func TestBackendNeighborSync(t *testing.T) {
 		require.NoError(t, h.Stop(log, context.Background()), "Stop")
 	})
 
-	var addr1, addr2 loadbalancer.L3n4Addr
+	var addr1, addr1Alt, addr2 loadbalancer.L3n4Addr
 	addr1.ParseFromString("1.0.0.1:80/TCP")
+	addr1Alt.ParseFromString("1.0.0.1:443/TCP")
 	addr2.ParseFromString("2.0.0.2:80/TCP")
 
 	wtxn := db.WriteTxn(backends)
 	backends.Insert(wtxn, &loadbalancer.Backend{Address: addr1})
+	backends.Insert(wtxn, &loadbalancer.Backend{Address: addr1Alt})
 	backends.Insert(wtxn, &loadbalancer.Backend{Address: addr2})
 	wtxn.Commit()
 
@@ -71,8 +73,26 @@ func TestBackendNeighborSync(t *testing.T) {
 	require.Eventually(t, requireHasAddress(addr1, false), 5*time.Second, 100*time.Millisecond)
 	require.Eventually(t, requireHasAddress(addr2, false), 5*time.Second, 100*time.Millisecond)
 
+	// Updating an existing row must not create an additional reference.
 	wtxn = db.WriteTxn(backends)
-	backends.DeleteAll(wtxn)
+	backends.Insert(wtxn, &loadbalancer.Backend{
+		Address: addr1,
+		State:   loadbalancer.BackendStateTerminating,
+	})
+	wtxn.Commit()
+
+	wtxn = db.WriteTxn(backends)
+	backends.Delete(wtxn, &loadbalancer.Backend{Address: addr1})
+	wtxn.Commit()
+
+	// Deleting one backend must not remove an IP that is still used by another
+	// backend row. The remaining row must also be able to remove the owner that
+	// was initially inserted for the first row.
+	require.Eventually(t, requireHasAddress(addr1Alt, false), 5*time.Second, 100*time.Millisecond)
+
+	wtxn = db.WriteTxn(backends)
+	backends.Delete(wtxn, &loadbalancer.Backend{Address: addr1Alt})
+	backends.Delete(wtxn, &loadbalancer.Backend{Address: addr2})
 	wtxn.Commit()
 
 	require.Eventually(t, requireHasAddress(addr1, true), 5*time.Second, 100*time.Millisecond)

@@ -43,12 +43,22 @@ func TestPrivilegedSocketTermination_ControlPlane(t *testing.T) {
 
 	for _, hostOnly := range []bool{true, false} {
 		t.Run(fmt.Sprintf("hostOnly=%v", hostOnly), func(t *testing.T) {
-			testSocketTermination(t, hostOnly)
+			testSocketTermination(t, hostOnly, false)
 		})
 	}
 }
 
-func testSocketTermination(t *testing.T, hostOnly bool) {
+func TestPrivilegedSocketTermination_FlattenedRows(t *testing.T) {
+	testutils.PrivilegedTest(t)
+
+	for _, hostOnly := range []bool{true, false} {
+		t.Run(fmt.Sprintf("hostOnly=%v", hostOnly), func(t *testing.T) {
+			testSocketTermination(t, hostOnly, true)
+		})
+	}
+}
+
+func testSocketTermination(t *testing.T, hostOnly, sharedService bool) {
 	var beAddr loadbalancer.L3n4Addr
 	require.NoError(t, beAddr.ParseFromString("1.0.0.1:80/UDP"))
 
@@ -147,14 +157,39 @@ func testSocketTermination(t *testing.T, hostOnly bool) {
 	}
 	be.SetSourcePriority(0)
 	backends.Insert(wtxn, be)
+	var be2 *loadbalancer.Backend
+	if sharedService {
+		be2 = be.Clone()
+		be2.ServiceName = loadbalancer.NewServiceName("bar", "baz")
+		backends.Insert(wtxn, be2)
+	}
 	wtxn.Commit()
 
 	// Wait until the first change has been seen
 	<-syncChan
 
-	wtxn = db.WriteTxn(backends)
-	backends.DeleteAll(wtxn)
-	wtxn.Commit()
+	if sharedService {
+		wtxn = db.WriteTxn(backends)
+		backends.Delete(wtxn, be)
+		wtxn.Commit()
+
+		// A flattened backend row can disappear while another service still
+		// uses the same address. That must not terminate the other service's
+		// sockets.
+		select {
+		case filter := <-mock.requests:
+			t.Fatalf("terminated sockets for a still-used backend: %#v", filter)
+		case <-time.After(250 * time.Millisecond):
+		}
+
+		wtxn = db.WriteTxn(backends)
+		backends.Delete(wtxn, be2)
+		wtxn.Commit()
+	} else {
+		wtxn = db.WriteTxn(backends)
+		backends.DeleteAll(wtxn)
+		wtxn.Commit()
+	}
 
 	// We should see two deletions: one for host ns (if enabled) and one for the mocked
 	// "foo" one.
