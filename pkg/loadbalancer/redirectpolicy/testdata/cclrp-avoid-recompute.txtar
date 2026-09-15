@@ -1,0 +1,128 @@
+# Verify that a CCLRP Pod change that does not change the resulting redirect
+# backends does not update the LB frontend.
+
+hive/start
+
+k8s/add service.yaml endpointslice.yaml pod.yaml cclrp.yaml
+db/cmp localredirectmappings mappings.table
+db/cmp frontends frontends.table
+
+db/show frontends -f yaml -o frontends-before.yaml
+
+# Add another matching Pod with the same IP. The effective CCLRP backend set
+# is unchanged, so the frontend must not be refreshed.
+k8s/add pod2.yaml
+sleep 100ms
+
+db/show frontends -f yaml -o frontends-after.yaml
+cmp frontends-before.yaml frontends-after.yaml
+
+# ---
+
+-- mappings.table --
+Policy         FrontendAddress                   TargetPort  Status  Error
+cclrp-service  169.254.169.254:8080/TCP          80/TCP      Done
+
+-- frontends.table --
+Address                    Type       ServiceName  PortName  Backends             RedirectTo                                     Status
+169.254.169.254:8080/TCP   ClusterIP  test/echo    http      10.244.2.1:80/TCP    cilium/cclrp-cclrp-service:local-redirect      Done
+
+-- service.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: test
+spec:
+  type: ClusterIP
+  clusterIP: 169.254.169.254
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 80
+
+-- endpointslice.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo
+  name: echo-v4
+  namespace: test
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.1
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: testnode
+ports:
+- name: http
+  port: 80
+  protocol: TCP
+
+-- cclrp.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-service
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: echo
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+  - port: "8080"
+    targetPort: "80"
+    protocol: TCP
+
+-- pod.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: proxy
+  namespace: test
+  labels:
+    app: proxy
+spec:
+  nodeName: testnode
+  containers:
+  - name: proxy
+    image: nginx
+status:
+  hostIP: 172.19.0.3
+  phase: Running
+  podIP: 10.244.2.1
+  podIPs:
+  - ip: 10.244.2.1
+  conditions:
+  - status: "True"
+    type: Ready
+
+-- pod2.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: proxy-2
+  namespace: test
+  labels:
+    app: proxy
+spec:
+  nodeName: testnode
+  containers:
+  - name: proxy
+    image: nginx
+status:
+  hostIP: 172.19.0.3
+  phase: Running
+  podIP: 10.244.2.1
+  podIPs:
+  - ip: 10.244.2.1
+  conditions:
+  - status: "True"
+    type: Ready

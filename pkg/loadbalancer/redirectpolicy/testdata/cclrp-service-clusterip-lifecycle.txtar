@@ -1,0 +1,265 @@
+# Verify ServiceMatcher behavior when the matched Service is removed,
+# recreated, and assigned a new ClusterIP.
+
+hive start
+
+k8s/add pod.yaml service.yaml endpointslice-a.yaml endpointslice-b.yaml
+k8s/add cclrp.yaml
+db/cmp localredirectmappings mappings-initial.table
+db/cmp frontends frontends-initial.table
+
+# Changing the Service ClusterIP moves the concrete mappings and redirects.
+k8s/update service-clusterip-updated.yaml
+db/cmp localredirectmappings mappings-clusterip-updated.table
+db/cmp frontends frontends-clusterip-updated.table
+
+# Removing the Service removes its concrete mappings while retaining the policy.
+k8s/delete service-clusterip-updated.yaml endpointslice-a.yaml endpointslice-b.yaml
+db/cmp localredirectmappings mappings-service-removed.table
+db/cmp frontends frontends-service-removed.table
+
+# Recreating the Service with two EndpointSlices restores all inherited mappings.
+k8s/add service-recreated.yaml endpointslice-recreated-a.yaml endpointslice-recreated-b.yaml
+db/cmp localredirectmappings mappings-recreated.table
+db/cmp frontends frontends-recreated.table
+
+k8s/delete cclrp.yaml service-recreated.yaml endpointslice-recreated-a.yaml endpointslice-recreated-b.yaml pod.yaml
+db/cmp localredirectmappings mappings-empty.table
+db/cmp frontends frontends-empty.table
+
+# ---
+
+-- mappings-initial.table --
+Policy         FrontendAddress                  TargetPort  Status   Error
+cclrp-service  169.254.169.254:8080/TCP         80/TCP      Pending
+cclrp-service  169.254.169.254:8443/TCP         443/TCP     Pending
+
+-- mappings-clusterip-updated.table --
+Policy         FrontendAddress                  TargetPort  Status  Error
+cclrp-service  169.254.169.253:8080/TCP         80/TCP      Done
+cclrp-service  169.254.169.253:8443/TCP         443/TCP     Done
+
+-- mappings-service-removed.table --
+Policy  FrontendAddress  TargetPort  Status  Error
+
+-- mappings-recreated.table --
+Policy         FrontendAddress                  TargetPort  Status  Error
+cclrp-service  169.254.169.252:8080/TCP         81/TCP      Done
+cclrp-service  169.254.169.252:8443/TCP         444/TCP     Done
+
+-- mappings-empty.table --
+Policy  FrontendAddress  TargetPort  Status  Error
+
+-- frontends-initial.table --
+Address                   Type       ServiceName  PortName  Backends            RedirectTo                                     Status
+169.254.169.254:8080/TCP  ClusterIP  test/echo    http      10.244.2.1:80/TCP   cilium/cclrp-cclrp-service:local-redirect      Done
+169.254.169.254:8443/TCP  ClusterIP  test/echo    https     10.244.2.1:443/TCP  cilium/cclrp-cclrp-service:local-redirect      Done
+
+-- frontends-clusterip-updated.table --
+Address                   Type       ServiceName  PortName  Backends            RedirectTo                                     Status
+169.254.169.253:8080/TCP  ClusterIP  test/echo    http      10.244.2.1:80/TCP   cilium/cclrp-cclrp-service:local-redirect      Done
+169.254.169.253:8443/TCP  ClusterIP  test/echo    https     10.244.2.1:443/TCP  cilium/cclrp-cclrp-service:local-redirect      Done
+
+-- frontends-service-removed.table --
+Address  Type  ServiceName  PortName  Backends  RedirectTo  Status
+
+-- frontends-recreated.table --
+Address                   Type       ServiceName  PortName  Backends            RedirectTo                                     Status
+169.254.169.252:8080/TCP  ClusterIP  test/echo    http      10.244.2.1:81/TCP   cilium/cclrp-cclrp-service:local-redirect      Done
+169.254.169.252:8443/TCP  ClusterIP  test/echo    https     10.244.2.1:444/TCP  cilium/cclrp-cclrp-service:local-redirect      Done
+
+-- frontends-empty.table --
+Address  Type  ServiceName  PortName  Backends  RedirectTo  Status
+
+-- pod.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: proxy
+  namespace: test
+  labels:
+    app: proxy
+spec:
+  nodeName: testnode
+  containers:
+  - name: proxy
+    image: nginx
+status:
+  hostIP: 172.19.0.3
+  phase: Running
+  podIP: 10.244.2.1
+  podIPs:
+  - ip: 10.244.2.1
+  conditions:
+  - status: "True"
+    type: Ready
+
+-- service.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: test
+spec:
+  type: ClusterIP
+  clusterIP: 169.254.169.254
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 80
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 443
+
+-- service-clusterip-updated.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: test
+spec:
+  type: ClusterIP
+  clusterIP: 169.254.169.253
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 80
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 443
+
+-- service-recreated.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: test
+spec:
+  type: ClusterIP
+  clusterIP: 169.254.169.252
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 81
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 444
+
+-- endpointslice-a.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo
+  name: echo-v4-a
+  namespace: test
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.1
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: testnode
+ports:
+- name: http
+  port: 80
+  protocol: TCP
+- name: https
+  port: 443
+  protocol: TCP
+
+-- endpointslice-b.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo
+  name: echo-v4-b
+  namespace: test
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.2
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: testnode
+ports:
+- name: http
+  port: 80
+  protocol: TCP
+- name: https
+  port: 443
+  protocol: TCP
+
+-- endpointslice-recreated-a.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo
+  name: echo-v4-a
+  namespace: test
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.3
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: testnode
+ports:
+- name: http
+  port: 81
+  protocol: TCP
+- name: https
+  port: 444
+  protocol: TCP
+
+-- endpointslice-recreated-b.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo
+  name: echo-v4-b
+  namespace: test
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.4
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: testnode
+ports:
+- name: http
+  port: 81
+  protocol: TCP
+- name: https
+  port: 444
+  protocol: TCP
+
+-- cclrp.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-service
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: echo
+  localEndpointSelector:
+    matchLabels:
+      app: proxy

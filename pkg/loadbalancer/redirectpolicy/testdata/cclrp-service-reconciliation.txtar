@@ -1,0 +1,277 @@
+# Verify that ServiceMatcher mappings are materialized and reconciled when
+# Service and EndpointSlice state changes.
+
+hive start
+
+k8s/add pod.yaml service.yaml endpointslice.yaml
+k8s/add cclrp.yaml
+db/cmp localredirectmappings mappings-initial.table
+db/cmp frontends frontends-initial.table
+db/cmp backends backends-initial.table
+
+# Changing EndpointSlice ports and addresses updates inherited mappings and
+# the CCLRP local backends.
+k8s/update service-target-updated.yaml endpointslice-target-updated.yaml
+db/cmp localredirectmappings mappings-target-updated.table
+db/cmp frontends frontends-target-updated.table
+db/cmp backends backends-target-updated.table
+
+# Removing a Service port removes its mapping and frontend redirect.
+k8s/update service-no-dns.yaml endpointslice-no-dns.yaml
+db/cmp localredirectmappings mappings-no-dns.table
+db/cmp frontends frontends-no-dns.table
+db/cmp backends backends-no-dns.table
+
+# Removing the policy and Service removes all remaining CCLRP state.
+k8s/delete cclrp.yaml service-no-dns.yaml endpointslice-no-dns.yaml pod.yaml
+db/cmp localredirectmappings mappings-empty.table
+db/cmp frontends frontends-empty.table
+db/cmp backends backends-empty.table
+
+# ---
+
+-- mappings-initial.table --
+Policy         FrontendAddress                   TargetPort   Status   Error
+cclrp-service  169.254.169.254:5353/UDP          5353/UDP     Pending
+cclrp-service  169.254.169.254:8080/TCP          80/TCP       Pending
+cclrp-service  169.254.169.254:8443/TCP          443/TCP      Pending
+
+-- mappings-target-updated.table --
+Policy         FrontendAddress                   TargetPort   Status  Error
+cclrp-service  169.254.169.254:5353/UDP          5354/UDP     Done
+cclrp-service  169.254.169.254:8080/TCP          81/TCP       Done
+cclrp-service  169.254.169.254:8443/TCP          444/TCP      Done
+-- mappings-no-dns.table --
+Policy         FrontendAddress                   TargetPort   Status   Error
+cclrp-service  169.254.169.254:8080/TCP          81/TCP       Done
+cclrp-service  169.254.169.254:8443/TCP          444/TCP      Done
+
+-- mappings-empty.table --
+Policy  FrontendAddress  TargetPort  Status  Error
+
+-- frontends-initial.table --
+Address                    Type       ServiceName  PortName  Backends              RedirectTo                                     Status
+169.254.169.254:5353/UDP   ClusterIP  test/echo    dns       10.244.2.1:5353/UDP   cilium/cclrp-cclrp-service:local-redirect      Done
+169.254.169.254:8080/TCP   ClusterIP  test/echo    http      10.244.2.1:80/TCP     cilium/cclrp-cclrp-service:local-redirect      Done
+169.254.169.254:8443/TCP   ClusterIP  test/echo    https     10.244.2.1:443/TCP    cilium/cclrp-cclrp-service:local-redirect      Done
+-- frontends-target-updated.table --
+Address                    Type       ServiceName  PortName  Backends              RedirectTo                                     Status
+169.254.169.254:5353/UDP   ClusterIP  test/echo    dns       10.244.2.1:5354/UDP   cilium/cclrp-cclrp-service:local-redirect      Done
+169.254.169.254:8080/TCP   ClusterIP  test/echo    http      10.244.2.1:81/TCP     cilium/cclrp-cclrp-service:local-redirect      Done
+169.254.169.254:8443/TCP   ClusterIP  test/echo    https     10.244.2.1:444/TCP    cilium/cclrp-cclrp-service:local-redirect      Done
+-- frontends-no-dns.table --
+Address                    Type       ServiceName  PortName  Backends             RedirectTo                                     Status
+169.254.169.254:8080/TCP   ClusterIP  test/echo    http      10.244.2.1:81/TCP    cilium/cclrp-cclrp-service:local-redirect      Done
+169.254.169.254:8443/TCP   ClusterIP  test/echo    https     10.244.2.1:444/TCP   cilium/cclrp-cclrp-service:local-redirect      Done
+
+-- frontends-empty.table --
+Address  Type  ServiceName  PortName  Backends  RedirectTo  Status
+
+-- backends-initial.table --
+Service                                     Address               NodeName
+cilium/cclrp-cclrp-service:local-redirect   10.244.2.1:80/TCP
+cilium/cclrp-cclrp-service:local-redirect   10.244.2.1:443/TCP
+cilium/cclrp-cclrp-service:local-redirect   10.244.2.1:5353/UDP
+test/echo                                   10.244.1.1:80/TCP     testnode
+test/echo                                   10.244.1.1:443/TCP    testnode
+test/echo                                   10.244.1.1:5353/UDP   testnode
+-- backends-target-updated.table --
+Service                                     Address               NodeName
+cilium/cclrp-cclrp-service:local-redirect   10.244.2.1:81/TCP
+cilium/cclrp-cclrp-service:local-redirect   10.244.2.1:444/TCP
+cilium/cclrp-cclrp-service:local-redirect   10.244.2.1:5354/UDP
+test/echo                                   10.244.1.2:81/TCP     testnode
+test/echo                                   10.244.1.2:444/TCP    testnode
+test/echo                                   10.244.1.2:5354/UDP   testnode
+
+-- backends-no-dns.table --
+Service                                     Address               NodeName
+cilium/cclrp-cclrp-service:local-redirect   10.244.2.1:81/TCP
+cilium/cclrp-cclrp-service:local-redirect   10.244.2.1:444/TCP
+test/echo                                   10.244.1.2:81/TCP     testnode
+test/echo                                   10.244.1.2:444/TCP    testnode
+
+-- backends-empty.table --
+Service  Address  NodeName
+
+-- pod.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: proxy
+  namespace: test
+  labels:
+    app: proxy
+spec:
+  nodeName: testnode
+  containers:
+  - name: proxy
+    image: nginx
+status:
+  hostIP: 172.19.0.3
+  phase: Running
+  podIP: 10.244.2.1
+  podIPs:
+  - ip: 10.244.2.1
+  conditions:
+  - status: "True"
+    type: Ready
+
+-- service.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: test
+spec:
+  type: ClusterIP
+  clusterIP: 169.254.169.254
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 80
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 443
+  - name: dns
+    port: 5353
+    protocol: UDP
+    targetPort: 5353
+
+-- service-target-updated.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: test
+spec:
+  type: ClusterIP
+  clusterIP: 169.254.169.254
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 81
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 444
+  - name: dns
+    port: 5353
+    protocol: UDP
+    targetPort: 5354
+
+-- service-no-dns.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: test
+spec:
+  type: ClusterIP
+  clusterIP: 169.254.169.254
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 81
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 444
+
+-- endpointslice.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo
+  name: echo-v4
+  namespace: test
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.1
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: testnode
+ports:
+- name: http
+  port: 80
+  protocol: TCP
+- name: https
+  port: 443
+  protocol: TCP
+- name: dns
+  port: 5353
+  protocol: UDP
+
+-- endpointslice-target-updated.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo
+  name: echo-v4
+  namespace: test
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.2
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: testnode
+ports:
+- name: http
+  port: 81
+  protocol: TCP
+- name: https
+  port: 444
+  protocol: TCP
+- name: dns
+  port: 5354
+  protocol: UDP
+
+-- endpointslice-no-dns.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo
+  name: echo-v4
+  namespace: test
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.2
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: testnode
+ports:
+- name: http
+  port: 81
+  protocol: TCP
+- name: https
+  port: 444
+  protocol: TCP
+
+-- cclrp.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-service
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: echo
+  localEndpointSelector:
+    matchLabels:
+      app: proxy

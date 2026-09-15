@@ -1,0 +1,117 @@
+# A valid CCLRP claim with no matching local endpoints must remove a legacy
+# CLRP redirect rather than leaving the legacy redirect active.
+
+hive start
+
+k8s/add service.yaml endpointslice.yaml pod.yaml lrp.yaml
+db/cmp frontends frontend-lrp.table
+
+k8s/add cclrp.yaml
+db/cmp localredirectmappings mapping-pending.table
+db/cmp frontends frontend-unredirected.table
+
+# ---
+
+-- service.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: test
+spec:
+  type: ClusterIP
+  clusterIP: 169.254.169.254
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 80
+
+-- endpointslice.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo
+  name: echo-v4
+  namespace: test
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.1
+  conditions:
+    ready: true
+ports:
+- name: http
+  port: 80
+  protocol: TCP
+
+-- pod.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: legacy-proxy
+  namespace: test
+  labels:
+    app: legacy
+spec:
+  nodeName: testnode
+  containers:
+  - name: proxy
+    image: nginx
+status:
+  hostIP: 172.19.0.3
+  phase: Running
+  podIP: 10.244.2.1
+  podIPs:
+  - ip: 10.244.2.1
+  conditions:
+  - status: "True"
+    type: Ready
+
+-- lrp.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumLocalRedirectPolicy
+metadata:
+  name: legacy
+  namespace: test
+spec:
+  redirectFrontend:
+    serviceMatcher:
+      namespace: test
+      serviceName: echo
+  redirectBackend:
+    localEndpointSelector:
+      matchLabels:
+        app: legacy
+    toPorts:
+    - port: "80"
+      protocol: TCP
+
+-- cclrp.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: no-local-endpoints
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: echo
+  localEndpointSelector:
+    matchLabels:
+      app: cclrp
+  ports:
+  - port: "8080"
+    targetPort: "80"
+    protocol: TCP
+
+-- frontend-lrp.table --
+Address                    Type       ServiceName   PortName  Backends             RedirectTo                                      Status
+169.254.169.254:8080/TCP   ClusterIP  test/echo     http      10.244.2.1:80/TCP    test/legacy:local-redirect                      Done
+-- mapping-pending.table --
+Policy                FrontendAddress                   TargetPort  Status  Error
+no-local-endpoints    169.254.169.254:8080/TCP          80/TCP      Pending
+
+-- frontend-unredirected.table --
+Address                    Type       ServiceName   PortName  Backends             RedirectTo                                      Status
+169.254.169.254:8080/TCP   ClusterIP  test/echo     http      10.244.1.1:80/TCP                                                    Done

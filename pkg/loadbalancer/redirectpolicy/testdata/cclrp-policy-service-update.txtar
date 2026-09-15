@@ -1,0 +1,147 @@
+# Changing a CCLRP serviceMatcher must remove the old Service redirect and
+# apply the policy to the new Service.
+
+hive start
+
+k8s/add service-a.yaml service-b.yaml endpoints-a.yaml endpoints-b.yaml pod.yaml cclrp-a.yaml
+db/cmp frontends frontends-a.table
+
+k8s/add cclrp-b.yaml
+db/cmp frontends frontends-b.table
+
+# ---
+
+-- service-a.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-a
+  namespace: test
+spec:
+  type: ClusterIP
+  clusterIP: 169.254.169.254
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 80
+
+-- service-b.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-b
+  namespace: test
+spec:
+  type: ClusterIP
+  clusterIP: 169.254.169.253
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 80
+
+-- endpoints-a.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo-a
+  name: echo-a-v4
+  namespace: test
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.1
+  conditions:
+    ready: true
+ports:
+- name: http
+  port: 80
+  protocol: TCP
+
+-- endpoints-b.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo-b
+  name: echo-b-v4
+  namespace: test
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.2
+  conditions:
+    ready: true
+ports:
+- name: http
+  port: 80
+  protocol: TCP
+
+-- pod.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: proxy
+  namespace: test
+  labels:
+    app: proxy
+spec:
+  nodeName: testnode
+  containers:
+  - name: proxy
+    image: nginx
+status:
+  hostIP: 172.19.0.3
+  phase: Running
+  podIP: 10.244.2.1
+  podIPs:
+  - ip: 10.244.2.1
+  conditions:
+  - status: "True"
+    type: Ready
+
+-- cclrp-a.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: service-update
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: echo-a
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+  - port: "8080"
+    targetPort: "80"
+    protocol: TCP
+
+-- cclrp-b.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: service-update
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: echo-b
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+  - port: "8080"
+    targetPort: "80"
+    protocol: TCP
+
+-- frontends-a.table --
+Address                    Type       ServiceName   PortName  Backends             RedirectTo                                      Status
+169.254.169.253:8080/TCP   ClusterIP  test/echo-b   http      10.244.1.2:80/TCP                                                    Done
+169.254.169.254:8080/TCP   ClusterIP  test/echo-a   http      10.244.2.1:80/TCP    cilium/cclrp-service-update:local-redirect      Done
+
+-- frontends-b.table --
+Address                    Type       ServiceName   PortName  Backends             RedirectTo                                      Status
+169.254.169.253:8080/TCP   ClusterIP  test/echo-b   http      10.244.2.1:80/TCP    cilium/cclrp-service-update:local-redirect      Done
+169.254.169.254:8080/TCP   ClusterIP  test/echo-a   http      10.244.1.1:80/TCP                                                    Done
