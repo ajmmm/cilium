@@ -23,6 +23,7 @@ CRDS_CILIUM_V2="ciliumnetworkpolicies \
                 ciliumidentities \
                 ciliumnodes \
                 ciliumlocalredirectpolicies \
+                ciliumclusterwidelocalredirectpolicies \
                 ciliumegressgatewaypolicies \
                 ciliumenvoyconfigs \
                 ciliumclusterwideenvoyconfigs \

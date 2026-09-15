@@ -5,6 +5,7 @@
 - CiliumBGPPeerConfig
 - :ref:`CiliumCIDRGroup<CiliumCIDRGroup>`
 - CiliumClusterwideEnvoyConfig
+- CiliumClusterwideLocalRedirectPolicy
 - :ref:`CiliumClusterwideNetworkPolicy<CiliumClusterwideNetworkPolicy>`
 - CiliumDatapathPlugin
 - CiliumEgressGatewayPolicy

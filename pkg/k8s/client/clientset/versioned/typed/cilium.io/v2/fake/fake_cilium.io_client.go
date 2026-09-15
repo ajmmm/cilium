@@ -43,6 +43,10 @@ func (c *FakeCiliumV2) CiliumClusterwideEnvoyConfigs() v2.CiliumClusterwideEnvoy
 	return newFakeCiliumClusterwideEnvoyConfigs(c)
 }
 
+func (c *FakeCiliumV2) CiliumClusterwideLocalRedirectPolicies() v2.CiliumClusterwideLocalRedirectPolicyInterface {
+	return newFakeCiliumClusterwideLocalRedirectPolicies(c)
+}
+
 func (c *FakeCiliumV2) CiliumClusterwideNetworkPolicies() v2.CiliumClusterwideNetworkPolicyInterface {
 	return newFakeCiliumClusterwideNetworkPolicies(c)
 }

@@ -19,6 +19,8 @@ type CiliumCIDRGroupExpansion interface{}
 
 type CiliumClusterwideEnvoyConfigExpansion interface{}
 
+type CiliumClusterwideLocalRedirectPolicyExpansion interface{}
+
 type CiliumClusterwideNetworkPolicyExpansion interface{}
 
 type CiliumEgressGatewayPolicyExpansion interface{}

@@ -106,6 +106,15 @@ const (
 	// CLRPName is the full name of Local Redirect Policy
 	CLRPName = CLRPPluralName + "." + CustomResourceDefinitionGroup
 
+	// CCLRPPluralName is the plural name of Clusterwide Local Redirect Policy
+	CCLRPPluralName = "ciliumclusterwidelocalredirectpolicies"
+
+	// CCLRPKindDefinition is the kind name for Clusterwide Local Redirect Policy
+	CCLRPKindDefinition = "CiliumClusterwideLocalRedirectPolicy"
+
+	// CCLRPName is the full name of Clusterwide Local Redirect Policy
+	CCLRPName = CCLRPPluralName + "." + CustomResourceDefinitionGroup
+
 	// Cilium Cluster Envoy Config (CCEC)
 
 	// CCECPluralName is the plural name of Cilium Clusterwide Envoy Config
@@ -242,6 +251,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&CiliumIdentityList{},
 		&CiliumLocalRedirectPolicy{},
 		&CiliumLocalRedirectPolicyList{},
+		&CiliumClusterwideLocalRedirectPolicy{},
+		&CiliumClusterwideLocalRedirectPolicyList{},
 		&CiliumEnvoyConfig{},
 		&CiliumEnvoyConfigList{},
 		&CiliumClusterwideEnvoyConfig{},

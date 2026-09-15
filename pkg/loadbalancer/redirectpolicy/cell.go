@@ -69,14 +69,15 @@ var Cell = cell.Module(
 	cell.Provide(lrpAPI),
 )
 
-// lrpCRDSyncResourceNames makes the agent wait for the CiliumLocalRedirectPolicy
-// CRD to synchronise when LRP is enabled.
+// lrpCRDSyncResourceNames makes the agent wait for the local redirect policy
+// CRDs to synchronise when LRP is enabled.
 func lrpCRDSyncResourceNames(cfg Config) k8sSynced.CRDSyncResourceNamesOut {
 	if !cfg.IsEnabled() {
 		return k8sSynced.CRDSyncResourceNamesOut{}
 	}
 	return k8sSynced.NewCRDSyncResourceNamesOut(
 		k8sSynced.CRDResourceName(ciliumv2.CLRPName),
+		k8sSynced.CRDResourceName(ciliumv2.CCLRPName),
 	)
 }
 

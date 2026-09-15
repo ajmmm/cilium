@@ -25,6 +25,7 @@ func TestLRPCRDSyncResourceNames(t *testing.T) {
 		require.Equal(t,
 			[]k8sSynced.CRDSyncResourceName{
 				k8sSynced.CRDSyncResourceName(k8sSynced.CRDResourceName(ciliumv2.CLRPName)),
+				k8sSynced.CRDSyncResourceName(k8sSynced.CRDResourceName(ciliumv2.CCLRPName)),
 			},
 			out.Names,
 		)

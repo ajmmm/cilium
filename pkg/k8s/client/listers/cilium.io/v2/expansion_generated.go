@@ -33,6 +33,10 @@ type CiliumCIDRGroupListerExpansion interface{}
 // CiliumClusterwideEnvoyConfigLister.
 type CiliumClusterwideEnvoyConfigListerExpansion interface{}
 
+// CiliumClusterwideLocalRedirectPolicyListerExpansion allows custom methods to be added to
+// CiliumClusterwideLocalRedirectPolicyLister.
+type CiliumClusterwideLocalRedirectPolicyListerExpansion interface{}
+
 // CiliumClusterwideNetworkPolicyListerExpansion allows custom methods to be added to
 // CiliumClusterwideNetworkPolicyLister.
 type CiliumClusterwideNetworkPolicyListerExpansion interface{}

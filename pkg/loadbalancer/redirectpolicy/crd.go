@@ -28,7 +28,7 @@ func (def lrpOperatorConfig) Flags(flags *pflag.FlagSet) {
 
 var defaultLRPOperatorConfig = lrpOperatorConfig{EnableConfig: defaultEnableConfig}
 
-// OperatorCell registers the CiliumLocalRedirectPolicy CRD when Local Redirect
+// OperatorCell registers the local redirect policy CRDs when Local Redirect
 // Policy support is enabled.
 var OperatorCell = cell.Module(
 	"local-redirect-policy-operator",
@@ -44,12 +44,20 @@ func newLRPCRDRegistration(cfg lrpOperatorConfig) apis.RegisterCRDsFuncOut {
 			if !cfg.IsEnabled() {
 				return nil, nil
 			}
-			return ciliumClient.CreateCustomResourceDefinition(
-				ctx,
-				logger,
-				client,
-				ciliumv2.CLRPName,
-			)
+			var needsMigration []*apiextensionsv1.CustomResourceDefinition
+			for _, crdName := range []string{ciliumv2.CLRPName, ciliumv2.CCLRPName} {
+				m, err := ciliumClient.CreateCustomResourceDefinition(
+					ctx,
+					logger,
+					client,
+					crdName,
+				)
+				if err != nil {
+					return nil, err
+				}
+				needsMigration = append(needsMigration, m...)
+			}
+			return needsMigration, nil
 		},
 	}
 }

@@ -44,6 +44,13 @@ annotations:
       description: |
         Cilium Local Redirect Policy allows local redirects to be configured
         within a node to support use cases like Node-Local DNS.
+    - kind: CiliumClusterwideLocalRedirectPolicy
+      version: v2
+      name: ciliumclusterwidelocalredirectpolicies.cilium.io
+      displayName: Cilium Clusterwide Local Redirect Policy
+      description: |
+        Cilium Clusterwide Local Redirect Policy allows local redirects to be
+        configured across namespaces within a node.
     - kind: CiliumNode
       version: v2
       name: ciliumnodes.cilium.io

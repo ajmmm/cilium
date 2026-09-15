@@ -270,6 +270,7 @@ rules:
   - ciliumenvoyconfigs.cilium.io
   - ciliumidentities.cilium.io
   - ciliumlocalredirectpolicies.cilium.io
+  - ciliumclusterwidelocalredirectpolicies.cilium.io
   - ciliumnetworkpolicies.cilium.io
   - ciliumnodes.cilium.io
   - ciliumnodeconfigs.cilium.io

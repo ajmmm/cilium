@@ -25,6 +25,8 @@ type Interface interface {
 	CiliumCIDRGroups() TypedCiliumCIDRGroupInformer
 	// CiliumClusterwideEnvoyConfigs returns a CiliumClusterwideEnvoyConfigInformer.
 	CiliumClusterwideEnvoyConfigs() TypedCiliumClusterwideEnvoyConfigInformer
+	// CiliumClusterwideLocalRedirectPolicies returns a CiliumClusterwideLocalRedirectPolicyInformer.
+	CiliumClusterwideLocalRedirectPolicies() TypedCiliumClusterwideLocalRedirectPolicyInformer
 	// CiliumClusterwideNetworkPolicies returns a CiliumClusterwideNetworkPolicyInformer.
 	CiliumClusterwideNetworkPolicies() TypedCiliumClusterwideNetworkPolicyInformer
 	// CiliumEgressGatewayPolicies returns a CiliumEgressGatewayPolicyInformer.
@@ -93,6 +95,11 @@ func (v *version) CiliumCIDRGroups() TypedCiliumCIDRGroupInformer {
 // CiliumClusterwideEnvoyConfigs returns a TypedCiliumClusterwideEnvoyConfigInformer.
 func (v *version) CiliumClusterwideEnvoyConfigs() TypedCiliumClusterwideEnvoyConfigInformer {
 	return &ciliumClusterwideEnvoyConfigInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// CiliumClusterwideLocalRedirectPolicies returns a TypedCiliumClusterwideLocalRedirectPolicyInformer.
+func (v *version) CiliumClusterwideLocalRedirectPolicies() TypedCiliumClusterwideLocalRedirectPolicyInformer {
+	return &ciliumClusterwideLocalRedirectPolicyInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // CiliumClusterwideNetworkPolicies returns a TypedCiliumClusterwideNetworkPolicyInformer.

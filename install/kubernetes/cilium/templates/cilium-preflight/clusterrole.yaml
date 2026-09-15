@@ -105,6 +105,7 @@ rules:
   - ciliumenvoyconfigs
   - ciliumidentities
   - ciliumlocalredirectpolicies
+  - ciliumclusterwidelocalredirectpolicies
   - ciliumnetworkpolicies
   - ciliumnodes
   - ciliumnodeconfigs

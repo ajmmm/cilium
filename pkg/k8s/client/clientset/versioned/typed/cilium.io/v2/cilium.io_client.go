@@ -22,6 +22,7 @@ type CiliumV2Interface interface {
 	CiliumBGPPeerConfigsGetter
 	CiliumCIDRGroupsGetter
 	CiliumClusterwideEnvoyConfigsGetter
+	CiliumClusterwideLocalRedirectPoliciesGetter
 	CiliumClusterwideNetworkPoliciesGetter
 	CiliumEgressGatewayPoliciesGetter
 	CiliumEndpointsGetter
@@ -66,6 +67,10 @@ func (c *CiliumV2Client) CiliumCIDRGroups() CiliumCIDRGroupInterface {
 
 func (c *CiliumV2Client) CiliumClusterwideEnvoyConfigs() CiliumClusterwideEnvoyConfigInterface {
 	return newCiliumClusterwideEnvoyConfigs(c)
+}
+
+func (c *CiliumV2Client) CiliumClusterwideLocalRedirectPolicies() CiliumClusterwideLocalRedirectPolicyInterface {
+	return newCiliumClusterwideLocalRedirectPolicies(c)
 }
 
 func (c *CiliumV2Client) CiliumClusterwideNetworkPolicies() CiliumClusterwideNetworkPolicyInterface {

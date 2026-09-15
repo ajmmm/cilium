@@ -44,6 +44,9 @@ const (
 	// CLRPCRDName is the full name of the CLRP CRD.
 	CLRPCRDName = k8sconstv2.CLRPKindDefinition + "/" + k8sconstv2.CustomResourceDefinitionVersion
 
+	// CCLRPCRDName is the full name of the CCLRP CRD.
+	CCLRPCRDName = k8sconstv2.CCLRPKindDefinition + "/" + k8sconstv2.CustomResourceDefinitionVersion
+
 	// CEGPCRDName is the full name of the CEGP CRD.
 	CEGPCRDName = k8sconstv2.CEGPKindDefinition + "/" + k8sconstv2.CustomResourceDefinitionVersion
 
@@ -132,6 +135,10 @@ func CustomResourceDefinitionList() map[string]*CRDList {
 		synced.CRDResourceName(k8sconstv2.CLRPName): {
 			Name:     CLRPCRDName,
 			FullName: k8sconstv2.CLRPName,
+		},
+		synced.CRDResourceName(k8sconstv2.CCLRPName): {
+			Name:     CCLRPCRDName,
+			FullName: k8sconstv2.CCLRPName,
 		},
 		synced.CRDResourceName(k8sconstv2.CEGPName): {
 			Name:     CEGPCRDName,
@@ -275,6 +282,9 @@ var (
 	//go:embed crds/v2/ciliumlocalredirectpolicies.yaml
 	crdsCiliumlocalredirectpolicies []byte
 
+	//go:embed crds/v2/ciliumclusterwidelocalredirectpolicies.yaml
+	crdsCiliumclusterwidelocalredirectpolicies []byte
+
 	//go:embed crds/v2/ciliumegressgatewaypolicies.yaml
 	crdsv2Ciliumegressgatewaypolicies []byte
 
@@ -356,6 +366,8 @@ func GetPregeneratedCRD(logger *slog.Logger, crdName string) apiextensionsv1.Cus
 		crdBytes = crdsCiliumnodes
 	case CLRPCRDName:
 		crdBytes = crdsCiliumlocalredirectpolicies
+	case CCLRPCRDName:
+		crdBytes = crdsCiliumclusterwidelocalredirectpolicies
 	case CEGPCRDName:
 		crdBytes = crdsv2Ciliumegressgatewaypolicies
 	case CESCRDName:
