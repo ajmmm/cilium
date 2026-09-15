@@ -1,0 +1,88 @@
+# Verify that CCLRPs with the same address matcher can select different ports,
+# but conflicting concrete frontends are rejected.
+
+hive start
+
+k8s/add cclrp-address-one.yaml
+db/cmp localredirectmappings mappings-one.table
+
+k8s/add cclrp-address-two.yaml
+db/cmp localredirectmappings mappings-two-ports.table
+
+k8s/add cclrp-address-two-conflict.yaml
+db/cmp localredirectmappings mappings-conflict.table
+
+k8s/delete cclrp-address-two.yaml
+db/cmp localredirectmappings mappings-recovered.table
+
+# ---
+
+-- mappings-one.table --
+Policy               FrontendAddress                   TargetPort   Status  Error
+cclrp-address-one    169.254.169.254:8080/TCP          80/TCP       Pending
+
+-- mappings-two-ports.table --
+Policy               FrontendAddress                   TargetPort     Status  Error
+cclrp-address-one    169.254.169.254:8080/TCP          80/TCP         Pending
+cclrp-address-two    169.254.169.254:8443/TCP          8443/TCP       Pending
+
+-- mappings-conflict.table --
+Policy               FrontendAddress                   TargetPort     Status  Error
+cclrp-address-one    169.254.169.254:8080/TCP          80/TCP         Error   frontend address 169.254.169.254:8080/TCP is claimed by multiple CCLRPs: cclrp-address-one, cclrp-address-two
+cclrp-address-two    169.254.169.254:8080/TCP          8080/TCP       Error   frontend address 169.254.169.254:8080/TCP is claimed by multiple CCLRPs: cclrp-address-one, cclrp-address-two
+cclrp-address-two    169.254.169.254:8443/TCP          8443/TCP       Pending
+
+-- mappings-recovered.table --
+Policy               FrontendAddress                   TargetPort   Status  Error
+cclrp-address-one    169.254.169.254:8080/TCP          80/TCP       Pending
+
+-- cclrp-address-one.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-address-one
+spec:
+  addressMatcher:
+    ip: 169.254.169.254
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8080"
+      targetPort: "80"
+      protocol: TCP
+
+-- cclrp-address-two.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-address-two
+spec:
+  addressMatcher:
+    ip: 169.254.169.254
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8443"
+      targetPort: "8443"
+      protocol: TCP
+
+-- cclrp-address-two-conflict.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-address-two
+spec:
+  addressMatcher:
+    ip: 169.254.169.254
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8080"
+      targetPort: "8080"
+      protocol: TCP
+    - port: "8443"
+      targetPort: "8443"
+      protocol: TCP

@@ -1,0 +1,135 @@
+# Verify that CCLRPs with the same ServiceMatcher can select different ports,
+# but conflicting concrete frontends are rejected.
+
+hive start
+
+k8s/add service.yaml endpointslice.yaml cclrp-service-one.yaml
+db/cmp localredirectmappings mappings-one.table
+
+k8s/add cclrp-service-two.yaml
+db/cmp localredirectmappings mappings-two-ports.table
+
+k8s/add cclrp-service-two-conflict.yaml
+db/cmp localredirectmappings mappings-conflict.table
+
+k8s/delete cclrp-service-two.yaml
+db/cmp localredirectmappings mappings-recovered.table
+
+# ---
+
+-- mappings-one.table --
+Policy              FrontendAddress                   TargetPort   Status  Error
+cclrp-service-one   169.254.169.254:8080/TCP          80/TCP       Pending
+
+-- mappings-two-ports.table --
+Policy              FrontendAddress                   TargetPort     Status  Error
+cclrp-service-one   169.254.169.254:8080/TCP          80/TCP         Pending
+cclrp-service-two   169.254.169.254:8443/TCP          443/TCP        Pending
+
+-- mappings-conflict.table --
+Policy              FrontendAddress                   TargetPort     Status  Error
+cclrp-service-one   169.254.169.254:8080/TCP          80/TCP         Error   frontend address 169.254.169.254:8080/TCP is claimed by multiple CCLRPs: cclrp-service-one, cclrp-service-two
+cclrp-service-two   169.254.169.254:8080/TCP          80/TCP         Error   frontend address 169.254.169.254:8080/TCP is claimed by multiple CCLRPs: cclrp-service-one, cclrp-service-two
+cclrp-service-two   169.254.169.254:8443/TCP          443/TCP        Pending
+
+-- mappings-recovered.table --
+Policy              FrontendAddress                   TargetPort   Status  Error
+cclrp-service-one   169.254.169.254:8080/TCP          80/TCP       Pending
+
+-- cclrp-service-one.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-service-one
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: echo
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8080"
+      targetPort: "80"
+      protocol: TCP
+
+-- cclrp-service-two.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-service-two
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: echo
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8443"
+      targetPort: "443"
+      protocol: TCP
+
+-- cclrp-service-two-conflict.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-service-two
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: echo
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8080"
+      targetPort: "80"
+      protocol: TCP
+    - port: "8443"
+      targetPort: "443"
+      protocol: TCP
+
+-- service.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: test
+spec:
+  type: ClusterIP
+  clusterIP: 169.254.169.254
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 80
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 443
+
+-- endpointslice.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo
+  name: echo-v4
+  namespace: test
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.1
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: testnode
+ports:
+- name: http
+  port: 80
+  protocol: TCP
+- name: https
+  port: 443
+  protocol: TCP

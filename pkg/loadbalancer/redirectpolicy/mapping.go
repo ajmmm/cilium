@@ -9,6 +9,7 @@ import (
 	"iter"
 	"log/slog"
 	"slices"
+	"strings"
 
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/job"
@@ -301,6 +302,7 @@ func (mapper *cclrpMapper) run(ctx context.Context, health cell.Health) error {
 				}
 			}
 		}
+		cclrpMappingConflicts(desiredMappings)
 
 		existingMappings := map[string]*ClusterwideLocalRedirectMapping{}
 		for mapping := range mapper.Mappings.All(wtxn) {
@@ -334,6 +336,36 @@ func (mapper *cclrpMapper) run(ctx context.Context, health cell.Health) error {
 		_, err := allWatches.Wait(ctx, waitTime)
 		if err != nil {
 			return err
+		}
+	}
+}
+
+// cclrpMappingConflicts marks mappings that claim the same concrete frontend
+// from more than one policy as errors. Policies matching the same address or
+// Service may coexist when their ports do not overlap.
+func cclrpMappingConflicts(mappings map[string]*ClusterwideLocalRedirectMapping) {
+	frontendAddressMappings := map[lb.L3n4Addr][]*ClusterwideLocalRedirectMapping{}
+	for _, mapping := range mappings {
+		frontendAddressMappings[mapping.FrontendAddress] = append(frontendAddressMappings[mapping.FrontendAddress], mapping)
+	}
+
+	for frontendAddress, mappings := range frontendAddressMappings {
+		policyNames := map[string]struct{}{}
+		for _, mapping := range mappings {
+			policyNames[mapping.PolicyName] = struct{}{}
+		}
+		if len(policyNames) < 2 {
+			continue
+		}
+
+		names := make([]string, 0, len(policyNames))
+		for policyName := range policyNames {
+			names = append(names, policyName)
+		}
+		slices.Sort(names)
+		err := fmt.Errorf("frontend address %s is claimed by multiple CCLRPs: %s", frontendAddress.StringWithProtocol(), strings.Join(names, ", "))
+		for _, mapping := range mappings {
+			mapping.Status = reconciler.StatusError(err)
 		}
 	}
 }
