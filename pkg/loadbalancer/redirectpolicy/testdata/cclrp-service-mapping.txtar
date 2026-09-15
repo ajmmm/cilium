@@ -1,0 +1,178 @@
+# Verify ServiceMatcher mappings for explicit ports and inherited Service
+# port-to-targetPort mappings.
+
+hive start
+
+# A single explicit CCLRP port produces one mapping.
+k8s/add service.yaml endpointslice.yaml
+k8s/add cclrp-one.yaml
+db/cmp localredirectmappings mappings-one.table
+
+# Explicitly selecting all Service ports produces one mapping per port.
+k8s/update cclrp-many.yaml
+db/cmp localredirectmappings mappings-many.table
+
+# Omitting ports inherits the Service's port-to-targetPort mappings.
+k8s/update cclrp-all.yaml
+db/cmp localredirectmappings mappings-all.table
+
+# Changes to the Service frontends are reflected in inherited mappings.
+k8s/update service-updated.yaml
+db/cmp localredirectmappings mappings-all-updated.table
+
+k8s/delete cclrp-all.yaml service-updated.yaml endpointslice.yaml
+db/cmp localredirectmappings empty.table
+
+# ---
+
+-- mappings-one.table --
+Policy         FrontendAddress                   TargetPort   Status   Error
+cclrp-service  169.254.169.254:8080/TCP          80/TCP       Pending
+
+-- mappings-many.table --
+Policy         FrontendAddress                   TargetPort   Status   Error
+cclrp-service  169.254.169.254:5353/UDP          5353/UDP     Pending
+cclrp-service  169.254.169.254:8080/TCP          80/TCP       Pending
+cclrp-service  169.254.169.254:8443/TCP          443/TCP      Pending
+
+-- mappings-all.table --
+Policy         FrontendAddress                   TargetPort   Status   Error
+cclrp-service  169.254.169.254:5353/UDP          5353/UDP     Pending
+cclrp-service  169.254.169.254:8080/TCP          80/TCP       Pending
+cclrp-service  169.254.169.254:8443/TCP          443/TCP      Pending
+
+-- mappings-all-updated.table --
+Policy         FrontendAddress                   TargetPort   Status   Error
+cclrp-service  169.254.169.253:5353/UDP          5353/UDP     Pending
+cclrp-service  169.254.169.253:8080/TCP          80/TCP       Pending
+cclrp-service  169.254.169.253:8443/TCP          443/TCP      Pending
+
+-- empty.table --
+Policy  FrontendAddress  TargetPort  Status  Error
+
+-- cclrp-one.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-service
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: echo
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8080"
+      targetPort: "80"
+      protocol: TCP
+
+-- cclrp-many.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-service
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: echo
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8080"
+      targetPort: "80"
+      protocol: TCP
+    - port: "8443"
+      targetPort: "443"
+      protocol: TCP
+    - port: "5353"
+      targetPort: "5353"
+      protocol: UDP
+
+-- cclrp-all.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-service
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: echo
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+
+-- service.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: test
+spec:
+  type: ClusterIP
+  clusterIP: 169.254.169.254
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 80
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 443
+  - name: dns
+    port: 5353
+    protocol: UDP
+    targetPort: 5353
+
+-- service-updated.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: test
+spec:
+  type: ClusterIP
+  clusterIP: 169.254.169.253
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 80
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 443
+  - name: dns
+    port: 5353
+    protocol: UDP
+    targetPort: 5353
+
+-- endpointslice.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo
+  name: echo-v4
+  namespace: test
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.1
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: testnode
+ports:
+- name: http
+  port: 80
+  protocol: TCP
+- name: https
+  port: 443
+  protocol: TCP
+- name: dns
+  port: 5353
+  protocol: UDP

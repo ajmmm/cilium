@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
+	"slices"
 
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/job"
@@ -32,6 +33,12 @@ func frontendExists(frontends iter.Seq2[*lb.Frontend, statedb.Revision]) bool {
 		return true
 	}
 	return false
+}
+
+// isMappingCandidate reports whether a frontend can be resolved for a
+// ServiceMatcher policy.
+func isMappingCandidate(frontend *lb.Frontend) bool {
+	return frontend.Type == lb.SVCTypeClusterIP
 }
 
 type ClusterwideLocalRedirectMapping struct {
@@ -157,6 +164,8 @@ type cclrpMapper struct {
 
 	Frontends statedb.Table[*lb.Frontend]
 
+	Backends statedb.Table[*lb.Backend]
+
 	Mappings statedb.RWTable[*ClusterwideLocalRedirectMapping]
 }
 
@@ -173,6 +182,8 @@ type cclrpMapperParams struct {
 
 	Frontends statedb.Table[*lb.Frontend]
 
+	Backends statedb.Table[*lb.Backend]
+
 	Mappings statedb.RWTable[*ClusterwideLocalRedirectMapping]
 }
 
@@ -183,6 +194,7 @@ func newCCLRPMapper(params cclrpMapperParams) *cclrpMapper {
 		DB:        params.DB,
 		Policies:  params.Policies,
 		Frontends: params.Frontends,
+		Backends:  params.Backends,
 		Mappings:  params.Mappings,
 	}
 }
@@ -203,9 +215,10 @@ func (mapper *cclrpMapper) run(ctx context.Context, health cell.Health) error {
 	wtxn.Commit()
 
 	for {
-		// Watch normalised CCLRP intent and load-balancer frontends. Policy
-		// changes create or remove mappings, while frontend changes resolve
-		// address matchers against existing frontend ownership.
+		// Watch normalised CCLRP intent, load-balancer frontends, and Service
+		// backends. Policy changes create or remove mappings, frontend changes
+		// resolve address matchers, and backend changes refresh inherited
+		// Service port-to-targetPort mappings.
 		allWatches := statedb.NewWatchSet()
 		wtxn := mapper.DB.WriteTxn(mapper.Mappings)
 
@@ -213,6 +226,8 @@ func (mapper *cclrpMapper) run(ctx context.Context, health cell.Health) error {
 		allWatches.Add(policiesInitWatch)
 		_, frontendsInitWatch := mapper.Frontends.Initialized(wtxn)
 		allWatches.Add(frontendsInitWatch)
+		_, backendsInitWatch := mapper.Backends.Initialized(wtxn)
+		allWatches.Add(backendsInitWatch)
 
 		policies, policiesWatch := mapper.Policies.AllWatch(wtxn)
 		allWatches.Add(policiesWatch)
@@ -247,6 +262,42 @@ func (mapper *cclrpMapper) run(ctx context.Context, health cell.Health) error {
 						continue
 					}
 					insertMapping(policy, frontend, port)
+				}
+				continue
+			}
+
+			if policy.IsServiceMatcher() {
+				frontends, frontendsWatch := mapper.Frontends.ListWatch(wtxn, lb.FrontendByServiceName(*policy.ServiceMatcher))
+				allWatches.Add(frontendsWatch)
+				backends, backendsWatch := lb.ListBackendsByServiceName(wtxn, mapper.Backends, *policy.ServiceMatcher)
+				allWatches.Add(backendsWatch)
+				for frontend := range frontends {
+					if !isMappingCandidate(frontend) {
+						continue
+					}
+					if len(policy.Ports) == 0 {
+						for backend := range backends {
+							if !backend.Address.Compatible(frontend.Address) {
+								continue
+							}
+							if frontend.PortName != "" && !slices.Contains(backend.PortNames, string(frontend.PortName)) {
+								continue
+							}
+							port := ClusterwideLocalRedirectPort{
+								Port:       frontend.ServicePort,
+								TargetPort: backend.Address.Port(),
+								Protocol:   backend.Address.Protocol(),
+							}
+							insertMapping(policy, frontend.Address, port)
+							break
+						}
+						continue
+					}
+					for _, port := range policy.Ports {
+						if frontend.ServicePort == port.Port && frontend.Address.Protocol() == port.Protocol {
+							insertMapping(policy, frontend.Address, port)
+						}
+					}
 				}
 			}
 		}
