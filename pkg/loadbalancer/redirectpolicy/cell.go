@@ -34,6 +34,9 @@ var Cell = cell.Module(
 		statedb.RWTable[*LocalRedirectPolicy].ToTable,
 		// Provide Table[*ClusterwideLocalRedirectPolicy] for StateDB inspection.
 		statedb.RWTable[*ClusterwideLocalRedirectPolicy].ToTable,
+		// Provide Table[*ClusterwideLocalRedirectMapping] for frontend/backend
+		// reconciliation and StateDB inspection.
+		statedb.RWTable[*ClusterwideLocalRedirectMapping].ToTable,
 
 		// Wait for the local redirect policy CRDs when LRP is enabled.
 		lrpCRDSyncResourceNames,
@@ -54,6 +57,7 @@ var Cell = cell.Module(
 		NewLRPTable,
 		NewCCLRPTable,
 		newCCLRPReflector,
+		NewCCLRPMappingTable,
 		newDesiredSkipLBTable,
 	),
 
