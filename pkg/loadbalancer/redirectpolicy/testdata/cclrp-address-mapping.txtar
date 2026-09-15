@@ -1,0 +1,172 @@
+# Verify address-based CCLRP mapping for one, two, and three ports.
+# An address already owned by a Service is reflected in the policy table but
+# is not added to the concrete mapping table.
+
+hive start
+
+k8s/add cclrp-invalid.yaml
+db/cmp localredirects policies-empty.table
+
+k8s/add cclrp-conflict-service.yaml
+k8s/add cclrp-address.yaml cclrp-address-conflict.yaml cclrp-service.yaml
+db/cmp localredirects policies.table
+db/cmp localredirectmappings mappings-one.table
+
+k8s/update cclrp-address-two.yaml
+db/cmp localredirectmappings mappings-two.table
+
+k8s/update cclrp-address-three.yaml
+db/cmp localredirectmappings mappings-three.table
+
+k8s/delete cclrp-address-three.yaml cclrp-address-conflict.yaml cclrp-service.yaml cclrp-conflict-service.yaml
+db/cmp localredirectmappings empty.table
+
+# ---
+
+-- policies.table --
+Name                    Type     Address          Service    Ports                         LocalEndpointSelector
+cclrp-address           address  169.254.169.254             8080->80/TCP                  &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+cclrp-address-conflict  address  169.254.169.100             8080->80/TCP                  &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+cclrp-service           service                   test/echo  80->8080/TCP                  &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+
+-- policies-empty.table --
+Name  Type  Address  Service  Ports  LocalEndpointSelector
+
+-- mappings-one.table --
+Policy         FrontendAddress                   TargetPort   Status   Error
+cclrp-address  169.254.169.254:8080/TCP          80/TCP       Pending
+
+-- mappings-two.table --
+Policy         FrontendAddress                   TargetPort   Status   Error
+cclrp-address  169.254.169.254:8080/TCP          80/TCP       Pending
+cclrp-address  169.254.169.254:8443/TCP          8443/TCP     Pending
+
+-- mappings-three.table --
+Policy         FrontendAddress                     TargetPort                   Status   Error
+cclrp-address  [fe80::1]:5353/UDP                  5353/UDP                     Pending
+cclrp-address  [fe80::1]:8080/TCP                  80/TCP                       Pending
+cclrp-address  [fe80::1]:8443/TCP                  8443/TCP                     Pending
+
+-- empty.table --
+Policy  FrontendAddress  TargetPort  Status  Error
+
+-- cclrp-address.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-address
+spec:
+  addressMatcher:
+    ip: 169.254.169.254
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8080"
+      targetPort: "80"
+      protocol: TCP
+
+-- cclrp-address-two.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-address
+spec:
+  addressMatcher:
+    ip: 169.254.169.254
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8080"
+      targetPort: "80"
+      protocol: TCP
+    - port: "8443"
+      targetPort: "8443"
+      protocol: TCP
+
+-- cclrp-address-three.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-address
+spec:
+  addressMatcher:
+    ip: fe80::1
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8080"
+      targetPort: "80"
+      protocol: TCP
+    - port: "8443"
+      targetPort: "8443"
+      protocol: TCP
+    - port: "5353"
+      targetPort: "5353"
+      protocol: UDP
+
+-- cclrp-invalid.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-invalid
+spec:
+  addressMatcher:
+    ip: 192.0.2.1
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8080"
+      targetPort: "80"
+      protocol: TCP
+
+-- cclrp-address-conflict.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-address-conflict
+spec:
+  addressMatcher:
+    ip: 169.254.169.100
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8080"
+      targetPort: "80"
+      protocol: TCP
+
+-- cclrp-service.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-service
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: echo
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "80"
+      targetPort: "8080"
+      protocol: TCP
+
+-- cclrp-conflict-service.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: conflict
+  namespace: test
+spec:
+  type: ClusterIP
+  clusterIP: 169.254.169.100
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 8080

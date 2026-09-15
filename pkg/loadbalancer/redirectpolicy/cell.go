@@ -58,6 +58,7 @@ var Cell = cell.Module(
 		NewCCLRPTable,
 		newCCLRPReflector,
 		NewCCLRPMappingTable,
+		newCCLRPMapper,
 		newDesiredSkipLBTable,
 	),
 
@@ -67,6 +68,10 @@ var Cell = cell.Module(
 		// Reflect CiliumClusterwideLocalRedirectPolicy CRDs into the normalised
 		// CCLRP intent table.
 		registerCCLRPReflector,
+
+		// Resolve address-based CCLRP intent into concrete mappings.
+		registerCCLRPMapper,
+
 		// Register a controller to process the changes in the LRP, pod and frontend
 		// tables.
 		registerLRPController,

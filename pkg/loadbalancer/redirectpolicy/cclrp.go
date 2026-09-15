@@ -5,6 +5,7 @@ package redirectpolicy
 
 import (
 	"fmt"
+	"net/netip"
 	"strconv"
 	"strings"
 
@@ -17,6 +18,20 @@ import (
 	"github.com/cilium/cilium/pkg/policy/api"
 	policytypes "github.com/cilium/cilium/pkg/policy/types"
 )
+
+var cclrpLinkLocalPrefixes = [...]netip.Prefix{
+	netip.MustParsePrefix("169.254.0.0/16"),
+	netip.MustParsePrefix("fe80::/10"),
+}
+
+func isCCLRPLinkLocalAddress(address netip.Addr) bool {
+	for _, prefix := range cclrpLinkLocalPrefixes {
+		if prefix.Contains(address) {
+			return true
+		}
+	}
+	return false
+}
 
 // ClusterwideLocalRedirectPolicy is the normalised, Kubernetes-independent
 // representation of a CiliumClusterwideLocalRedirectPolicy. It contains
@@ -133,6 +148,9 @@ func parseCCLRP(cfg Config, clrp *ciliumv2.CiliumClusterwideLocalRedirectPolicy)
 		address, err := cmtypes.ParseAddrCluster(addressMatcher.IP)
 		if err != nil {
 			return nil, fmt.Errorf("invalid address matcher IP %q: %w", addressMatcher.IP, err)
+		}
+		if !isCCLRPLinkLocalAddress(address.Addr()) {
+			return nil, fmt.Errorf("address matcher IP %q must be link-local", addressMatcher.IP)
 		}
 		if !cfg.AddressAllowed(address.Addr()) {
 			return nil, fmt.Errorf("address %q in addressMatcher disallowed by --%s", addressMatcher.IP, AddressMatcherCIDRsName)
