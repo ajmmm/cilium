@@ -1,0 +1,108 @@
+# Verify that CCLRP endpoint selection follows cluster-wide policy semantics:
+# namespace is selectable explicitly and is not implicit.
+
+hive start
+
+# Both Pods have the same application label, but the policy selects one namespace.
+k8s/add pod-tenant-a.yaml pod-tenant-b.yaml cclrp.yaml
+db/cmp backends selected-namespace.table
+
+# Removing the namespace constraint selects matching Pods from both namespaces.
+k8s/update cclrp-all-namespaces.yaml
+db/cmp backends all-namespaces.table
+
+k8s/delete cclrp-all-namespaces.yaml pod-tenant-a.yaml pod-tenant-b.yaml
+db/cmp backends empty.table
+
+# ---
+
+-- selected-namespace.table --
+Service                                Address            NodeName
+cilium/cclrp-namespace:local-redirect  10.244.1.1:80/TCP
+
+-- all-namespaces.table --
+Service                                Address            NodeName
+cilium/cclrp-namespace:local-redirect  10.244.1.1:80/TCP
+cilium/cclrp-namespace:local-redirect  10.244.1.2:80/TCP
+
+-- empty.table --
+Service  Address  NodeName
+
+-- pod-tenant-a.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: proxy-a
+  namespace: tenant-a
+  labels:
+    app: proxy
+spec:
+  nodeName: testnode
+  containers:
+  - name: proxy
+    image: nginx
+status:
+  hostIP: 172.19.0.3
+  phase: Running
+  podIP: 10.244.1.1
+  podIPs:
+  - ip: 10.244.1.1
+  conditions:
+  - status: "True"
+    type: Ready
+
+-- pod-tenant-b.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: proxy-b
+  namespace: tenant-b
+  labels:
+    app: proxy
+spec:
+  nodeName: testnode
+  containers:
+  - name: proxy
+    image: nginx
+status:
+  hostIP: 172.19.0.3
+  phase: Running
+  podIP: 10.244.1.2
+  podIPs:
+  - ip: 10.244.1.2
+  conditions:
+  - status: "True"
+    type: Ready
+
+-- cclrp.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: namespace
+spec:
+  addressMatcher:
+    ip: 169.254.169.254
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+      io.kubernetes.pod.namespace: tenant-a
+  ports:
+  - port: "8080"
+    targetPort: "80"
+    protocol: TCP
+
+-- cclrp-all-namespaces.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: namespace
+spec:
+  addressMatcher:
+    ip: 169.254.169.254
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+  - port: "8080"
+    targetPort: "80"
+    protocol: TCP

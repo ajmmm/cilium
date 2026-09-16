@@ -61,6 +61,7 @@ type lrpControllerParams struct {
 	Pods               statedb.Table[k8sTables.LocalPod]
 	DesiredSkipLB      statedb.RWTable[*desiredSkipLB]
 	Writer             *writer.Writer
+	Mapper             *cclrpMapper
 	NetNSCookieSupport reflectors.HaveNetNSCookieSupport
 	Metrics            controllerMetrics
 	LRPMetrics         LRPMetrics `optional:"true"`
@@ -223,6 +224,9 @@ func (c *lrpController) processRedirectPolicy(wtxn writer.WriteTxn, lrpID lb.Ser
 		if lrp.LRPType == lrpConfigTypeSvc {
 			targetName := lrp.ServiceID
 			for fe := range c.p.Writer.Frontends().List(wtxn, lb.FrontendByServiceName(targetName)) {
+				if claimed, _ := c.p.Mapper.isClaimed(wtxn, fe.Address); claimed {
+					continue
+				}
 				c.p.Writer.SetRedirectTo(wtxn, fe, nil)
 			}
 		}
@@ -302,6 +306,12 @@ func (c *lrpController) updateRedirects(wtxn writer.WriteTxn, ws *statedb.WatchS
 		ws.Add(watch)
 
 		for fe := range fes {
+			claimed, claimWatch := c.p.Mapper.isClaimed(wtxn, fe.Address)
+			ws.Add(claimWatch)
+			if claimed {
+				continue
+			}
+
 			// Only ClusterIP services can be redirected.
 			if fe.Type != lb.SVCTypeClusterIP {
 				continue
@@ -322,7 +332,18 @@ func (c *lrpController) updateRedirects(wtxn writer.WriteTxn, ws *statedb.WatchS
 		// In address-based mode there is no existing service/frontend to match against and
 		// instead the frontend is created here.
 		for _, feM := range lrp.FrontendMappings {
-			fe, _, found := c.p.Writer.Frontends().Get(wtxn, lb.FrontendByAddress(feM.feAddr))
+			claimed, claimWatch := c.p.Mapper.isClaimed(wtxn, feM.feAddr)
+			ws.Add(claimWatch)
+			if claimed {
+				fe, _, found := c.p.Writer.Frontends().Get(wtxn, lb.FrontendByAddress(feM.feAddr))
+				if found && fe.Type == lb.SVCTypeLocalRedirect && fe.ServiceName.Equal(lrpServiceName) {
+					c.p.Writer.DeleteFrontend(wtxn, feM.feAddr)
+				}
+				continue
+			}
+
+			fe, _, frontendWatch, found := c.p.Writer.Frontends().GetWatch(wtxn, lb.FrontendByAddress(feM.feAddr))
+			ws.Add(frontendWatch)
 			if len(pods) == 0 {
 				// No pods exist to redirect the traffic to. If we previously installed a
 				// LocalRedirect frontend for this LRP, remove it so traffic falls back to

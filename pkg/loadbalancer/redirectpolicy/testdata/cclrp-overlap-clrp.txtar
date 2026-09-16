@@ -1,0 +1,98 @@
+# A conflicting CCLRP must not delete a legacy CLRP frontend when the CCLRP
+# mappings are in error and therefore do not claim the address.
+
+hive start
+
+k8s/add pod.yaml lrp.yaml
+db/cmp frontends frontend-lrp.table
+
+k8s/add cclrp-one.yaml cclrp-two.yaml
+db/cmp localredirectmappings mappings-error.table
+db/cmp frontends frontend-lrp.table
+
+# ---
+
+-- pod.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: proxy
+  namespace: test
+  labels:
+    app: proxy
+spec:
+  nodeName: testnode
+  containers:
+  - name: proxy
+    image: nginx
+status:
+  hostIP: 172.19.0.3
+  phase: Running
+  podIP: 10.244.2.1
+  podIPs:
+  - ip: 10.244.2.1
+  conditions:
+  - status: "True"
+    type: Ready
+
+-- lrp.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumLocalRedirectPolicy
+metadata:
+  name: legacy
+  namespace: test
+spec:
+  redirectFrontend:
+    addressMatcher:
+      ip: 169.254.169.254
+      toPorts:
+      - port: "8080"
+        protocol: TCP
+  redirectBackend:
+    localEndpointSelector:
+      matchLabels:
+        app: proxy
+    toPorts:
+    - port: "80"
+      protocol: TCP
+
+-- cclrp-one.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-one
+spec:
+  addressMatcher:
+    ip: 169.254.169.254
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+  - port: "8080"
+    targetPort: "80"
+    protocol: TCP
+
+-- cclrp-two.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-two
+spec:
+  addressMatcher:
+    ip: 169.254.169.254
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+  - port: "8080"
+    targetPort: "8080"
+    protocol: TCP
+
+-- frontend-lrp.table --
+Address                     Type          ServiceName                             PortName          Backends            RedirectTo  Status
+169.254.169.254:8080/TCP    LocalRedirect test/legacy:local-redirect                                10.244.2.1:80/TCP               Done
+
+-- mappings-error.table --
+Policy       FrontendAddress                   TargetPort     Status  Error
+cclrp-one    169.254.169.254:8080/TCP          80/TCP         Error   frontend address 169.254.169.254:8080/TCP is claimed by multiple CCLRPs: cclrp-one, cclrp-two
+cclrp-two    169.254.169.254:8080/TCP          8080/TCP       Error   frontend address 169.254.169.254:8080/TCP is claimed by multiple CCLRPs: cclrp-one, cclrp-two

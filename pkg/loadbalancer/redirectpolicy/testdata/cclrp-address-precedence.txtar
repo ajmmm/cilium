@@ -1,0 +1,96 @@
+# A CCLRP addressMatcher takes precedence over a CLRP matching the same address.
+
+hive start
+
+k8s/add pod.yaml
+k8s/add lrp.yaml
+db/cmp frontends frontends-lrp.table
+
+k8s/add cclrp.yaml
+db/cmp frontends frontends-cclrp.table
+db/cmp backends backends-cclrp.table
+
+# Removing the CCLRP releases the claim and lets CLRP restore the frontend.
+k8s/delete cclrp.yaml
+db/cmp localredirectmappings empty.table
+db/cmp frontends frontends-lrp.table
+
+# ---
+
+-- pod.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: proxy
+  namespace: test
+  labels:
+    app: proxy
+spec:
+  nodeName: testnode
+  containers:
+  - name: proxy
+    image: nginx
+status:
+  hostIP: 172.19.0.3
+  phase: Running
+  podIP: 10.244.2.1
+  podIPs:
+  - ip: 10.244.2.1
+  conditions:
+  - status: "True"
+    type: Ready
+
+-- lrp.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumLocalRedirectPolicy
+metadata:
+  name: legacy
+  namespace: test
+spec:
+  redirectFrontend:
+    addressMatcher:
+      ip: 169.254.169.254
+      toPorts:
+      - port: "8080"
+        name: http
+        protocol: TCP
+  redirectBackend:
+    localEndpointSelector:
+      matchLabels:
+        app: proxy
+    toPorts:
+    - port: "80"
+      name: http
+      protocol: TCP
+
+-- cclrp.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: clusterwide
+spec:
+  addressMatcher:
+    ip: 169.254.169.254
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+  - port: "8080"
+    targetPort: "80"
+    protocol: TCP
+
+-- frontends-lrp.table --
+Address                     Type          ServiceName                             PortName          Backends            RedirectTo  Status
+169.254.169.254:8080/TCP    LocalRedirect test/legacy:local-redirect                                10.244.2.1:80/TCP               Done
+
+-- frontends-cclrp.table --
+Address                     Type          ServiceName                             PortName          Backends            RedirectTo  Status
+169.254.169.254:8080/TCP    LocalRedirect cilium/cclrp-clusterwide:local-redirect cclrp-8080-TCP    10.244.2.1:80/TCP               Done
+
+-- backends-cclrp.table --
+Service                                  Address            NodeName
+cilium/cclrp-clusterwide:local-redirect  10.244.2.1:80/TCP
+test/legacy:local-redirect               10.244.2.1:80/TCP
+
+-- empty.table --
+Policy  FrontendAddress  TargetPort  Status  Error

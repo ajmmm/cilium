@@ -59,6 +59,7 @@ var Cell = cell.Module(
 		newCCLRPReflector,
 		NewCCLRPMappingTable,
 		newCCLRPMapper,
+		newCCLRPController,
 		newDesiredSkipLBTable,
 	),
 
@@ -71,6 +72,8 @@ var Cell = cell.Module(
 
 		// Resolve address-based CCLRP intent into concrete mappings.
 		registerCCLRPMapper,
+		// Apply CCLRP mappings to load-balancer state.
+		registerCCLRPController,
 
 		// Register a controller to process the changes in the LRP, pod and frontend
 		// tables.

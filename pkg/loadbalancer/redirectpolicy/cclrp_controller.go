@@ -11,6 +11,7 @@ import (
 	"slices"
 
 	"github.com/cilium/hive/cell"
+	"github.com/cilium/hive/job"
 	"github.com/cilium/statedb"
 	"github.com/cilium/statedb/reconciler"
 
@@ -71,6 +72,13 @@ func newCCLRPController(params cclrpControllerParams) *cclrpController {
 		Pods:     params.Pods,
 		Writer:   params.Writer,
 	}
+}
+
+func registerCCLRPController(g job.Group, controller *cclrpController) {
+	if !controller.Config.IsEnabled() {
+		return
+	}
+	g.Add(job.OneShot("cclrp-controller", controller.run))
 }
 
 func (controller *cclrpController) run(ctx context.Context, health cell.Health) error {

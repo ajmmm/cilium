@@ -24,14 +24,31 @@ import (
 
 const CCLRPMappingTableName = "localredirectmappings"
 
-// ClusterwideLocalRedirectMapping is a concrete mapping from a frontend
-// address to a target port, derived from local redirect policy intent. Service
-// matchers are added once their Service frontends have been resolved.
-//
 // frontendExists reports whether a frontend query returned at least one result.
 func frontendExists(frontends iter.Seq2[*lb.Frontend, statedb.Revision]) bool {
 	for range frontends {
 		return true
+	}
+	return false
+}
+
+// isClaimed reports whether a non-error CCLRP mapping currently claims the
+// frontend. The returned watch fires when the claim appears or disappears.
+func (mapper *cclrpMapper) isClaimed(txn statedb.ReadTxn, frontend lb.L3n4Addr) (bool, <-chan struct{}) {
+	mappings, watch := mapper.Mappings.ListWatch(txn, cclrpMappingFrontendAddressIndex.Query(frontend))
+	for mapping := range mappings {
+		if mapping.Status.Kind != reconciler.StatusKindError {
+			return true, watch
+		}
+	}
+	return false, watch
+}
+
+// addressFrontendConflicts reports whether a non-local-redirect frontend owns
+// the address. Local-redirect frontends can be replaced by a CCLRP claim.
+func addressFrontendConflicts(frontends iter.Seq2[*lb.Frontend, statedb.Revision]) bool {
+	for frontend := range frontends {
+		return frontend.Type != lb.SVCTypeLocalRedirect
 	}
 	return false
 }
@@ -42,6 +59,9 @@ func isMappingCandidate(frontend *lb.Frontend) bool {
 	return frontend.Type == lb.SVCTypeClusterIP
 }
 
+// ClusterwideLocalRedirectMapping is a concrete mapping from a frontend
+// address to a target port, derived from local redirect policy intent. Service
+// matchers are added once their Service frontends have been resolved.
 type ClusterwideLocalRedirectMapping struct {
 	// PolicyName identifies the owning cluster-scoped local redirect policy.
 	PolicyName string
@@ -259,7 +279,7 @@ func (mapper *cclrpMapper) run(ctx context.Context, health cell.Health) error {
 					)
 					frontends, frontendsWatch := mapper.Frontends.ListWatch(wtxn, lb.FrontendByAddress(frontend))
 					allWatches.Add(frontendsWatch)
-					if frontendExists(frontends) {
+					if addressFrontendConflicts(frontends) {
 						continue
 					}
 					insertMapping(policy, frontend, port)
