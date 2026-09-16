@@ -6,17 +6,23 @@ hive start
 
 k8s/add service.yaml endpointslice.yaml
 db/cmp frontends frontends-before.table
+lb/maps-dump lbmaps-before.actual
+cmp lbmaps-before.actual lbmaps-before.expected
 
 k8s/add cclrp.yaml pod-1.yaml
 db/cmp localredirectmappings mappings-one.table
 db/cmp frontends frontends-one.table
 db/cmp backends backends-one.table
+lb/maps-dump lbmaps-one.actual
+cmp lbmaps-one.actual lbmaps-one.expected
 
 # A second matching local endpoint is added and appears in both DNS protocols.
 k8s/add pod-2.yaml
 db/cmp localredirectmappings mappings-two.table
 db/cmp frontends frontends-two.table
 db/cmp backends backends-two.table
+lb/maps-dump lbmaps-two.actual
+cmp lbmaps-two.actual lbmaps-two.expected
 
 # A matching Pod without the namespace constraint would be selected, but the
 # explicit namespace label keeps this policy scoped to kube-system.
@@ -27,12 +33,16 @@ db/cmp backends backends-two.table
 k8s/delete pod-2.yaml
 db/cmp frontends frontends-one.table
 db/cmp backends backends-one.table
+lb/maps-dump lbmaps-one-after-delete.actual
+cmp lbmaps-one-after-delete.actual lbmaps-one-after-delete.expected
 
 # Removing the CCLRP restores the original Service backends and removes the
 # CCLRP pseudo-service.
 k8s/delete cclrp.yaml pod-1.yaml pod-other-namespace.yaml
 db/cmp frontends frontends-before.table
 db/cmp backends backends-service-only.table
+lb/maps-dump lbmaps-service-only.actual
+cmp lbmaps-service-only.actual lbmaps-service-only.expected
 
 # ---
 
@@ -253,3 +263,96 @@ status:
   conditions:
   - type: Ready
     status: "True"
+
+-- lbmaps-before.expected --
+BE: ID=1 ADDR=10.244.1.51:53/TCP STATE=active
+BE: ID=2 ADDR=10.244.1.68:53/TCP STATE=active
+BE: ID=3 ADDR=10.244.1.51:53/UDP STATE=active
+BE: ID=4 ADDR=10.244.1.68:53/UDP STATE=active
+BE: ID=5 ADDR=10.244.1.51:9153/TCP STATE=active
+BE: ID=6 ADDR=10.244.1.68:9153/TCP STATE=active
+REV: ID=1 ADDR=10.96.0.10:53
+REV: ID=2 ADDR=10.96.0.10:53
+REV: ID=3 ADDR=10.96.0.10:9153
+SVC: ID=0 ADDR=10.96.0.10:0/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.0.10:53/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=2 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.0.10:53/TCP SLOT=1 BEID=1 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.0.10:53/TCP SLOT=2 BEID=2 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=2 ADDR=10.96.0.10:53/UDP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=2 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=2 ADDR=10.96.0.10:53/UDP SLOT=1 BEID=3 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=2 ADDR=10.96.0.10:53/UDP SLOT=2 BEID=4 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=2 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=1 BEID=5 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=2 BEID=6 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+-- lbmaps-one.expected --
+BE: ID=5 ADDR=10.244.1.51:9153/TCP STATE=active
+BE: ID=6 ADDR=10.244.1.68:9153/TCP STATE=active
+BE: ID=7 ADDR=10.244.0.225:53/TCP STATE=active
+BE: ID=8 ADDR=10.244.0.225:53/UDP STATE=active
+REV: ID=1 ADDR=10.96.0.10:53
+REV: ID=2 ADDR=10.96.0.10:53
+REV: ID=3 ADDR=10.96.0.10:9153
+SVC: ID=0 ADDR=10.96.0.10:0/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.0.10:53/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=1 QCOUNT=0 FLAGS=LocalRedirect
+SVC: ID=1 ADDR=10.96.0.10:53/TCP SLOT=1 BEID=7 COUNT=0 QCOUNT=0 FLAGS=LocalRedirect
+SVC: ID=2 ADDR=10.96.0.10:53/UDP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=1 QCOUNT=0 FLAGS=LocalRedirect
+SVC: ID=2 ADDR=10.96.0.10:53/UDP SLOT=1 BEID=8 COUNT=0 QCOUNT=0 FLAGS=LocalRedirect
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=2 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=1 BEID=5 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=2 BEID=6 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+-- lbmaps-two.expected --
+BE: ID=10 ADDR=10.244.0.226:53/UDP STATE=active
+BE: ID=5 ADDR=10.244.1.51:9153/TCP STATE=active
+BE: ID=6 ADDR=10.244.1.68:9153/TCP STATE=active
+BE: ID=7 ADDR=10.244.0.225:53/TCP STATE=active
+BE: ID=8 ADDR=10.244.0.225:53/UDP STATE=active
+BE: ID=9 ADDR=10.244.0.226:53/TCP STATE=active
+REV: ID=1 ADDR=10.96.0.10:53
+REV: ID=2 ADDR=10.96.0.10:53
+REV: ID=3 ADDR=10.96.0.10:9153
+SVC: ID=0 ADDR=10.96.0.10:0/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.0.10:53/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=2 QCOUNT=0 FLAGS=LocalRedirect
+SVC: ID=1 ADDR=10.96.0.10:53/TCP SLOT=1 BEID=7 COUNT=0 QCOUNT=0 FLAGS=LocalRedirect
+SVC: ID=1 ADDR=10.96.0.10:53/TCP SLOT=2 BEID=9 COUNT=0 QCOUNT=0 FLAGS=LocalRedirect
+SVC: ID=2 ADDR=10.96.0.10:53/UDP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=2 QCOUNT=0 FLAGS=LocalRedirect
+SVC: ID=2 ADDR=10.96.0.10:53/UDP SLOT=1 BEID=8 COUNT=0 QCOUNT=0 FLAGS=LocalRedirect
+SVC: ID=2 ADDR=10.96.0.10:53/UDP SLOT=2 BEID=10 COUNT=0 QCOUNT=0 FLAGS=LocalRedirect
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=2 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=1 BEID=5 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=2 BEID=6 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+-- lbmaps-one-after-delete.expected --
+BE: ID=5 ADDR=10.244.1.51:9153/TCP STATE=active
+BE: ID=6 ADDR=10.244.1.68:9153/TCP STATE=active
+BE: ID=7 ADDR=10.244.0.225:53/TCP STATE=active
+BE: ID=8 ADDR=10.244.0.225:53/UDP STATE=active
+REV: ID=1 ADDR=10.96.0.10:53
+REV: ID=2 ADDR=10.96.0.10:53
+REV: ID=3 ADDR=10.96.0.10:9153
+SVC: ID=0 ADDR=10.96.0.10:0/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.0.10:53/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=1 QCOUNT=0 FLAGS=LocalRedirect
+SVC: ID=1 ADDR=10.96.0.10:53/TCP SLOT=1 BEID=7 COUNT=0 QCOUNT=0 FLAGS=LocalRedirect
+SVC: ID=2 ADDR=10.96.0.10:53/UDP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=1 QCOUNT=0 FLAGS=LocalRedirect
+SVC: ID=2 ADDR=10.96.0.10:53/UDP SLOT=1 BEID=8 COUNT=0 QCOUNT=0 FLAGS=LocalRedirect
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=2 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=1 BEID=5 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=2 BEID=6 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+-- lbmaps-service-only.expected --
+BE: ID=11 ADDR=10.244.1.51:53/TCP STATE=active
+BE: ID=12 ADDR=10.244.1.68:53/TCP STATE=active
+BE: ID=13 ADDR=10.244.1.51:53/UDP STATE=active
+BE: ID=14 ADDR=10.244.1.68:53/UDP STATE=active
+BE: ID=5 ADDR=10.244.1.51:9153/TCP STATE=active
+BE: ID=6 ADDR=10.244.1.68:9153/TCP STATE=active
+REV: ID=1 ADDR=10.96.0.10:53
+REV: ID=2 ADDR=10.96.0.10:53
+REV: ID=3 ADDR=10.96.0.10:9153
+SVC: ID=0 ADDR=10.96.0.10:0/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.0.10:53/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=2 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.0.10:53/TCP SLOT=1 BEID=11 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.0.10:53/TCP SLOT=2 BEID=12 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=2 ADDR=10.96.0.10:53/UDP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=2 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=2 ADDR=10.96.0.10:53/UDP SLOT=1 BEID=13 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=2 ADDR=10.96.0.10:53/UDP SLOT=2 BEID=14 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=2 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=1 BEID=5 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=3 ADDR=10.96.0.10:9153/TCP SLOT=2 BEID=6 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
