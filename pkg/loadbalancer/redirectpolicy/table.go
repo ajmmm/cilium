@@ -12,6 +12,7 @@ import (
 	"github.com/cilium/statedb/index"
 	"k8s.io/client-go/tools/cache"
 
+	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/k8s"
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/k8s/client"
@@ -21,7 +22,8 @@ import (
 )
 
 const (
-	LRPTableName = "localredirectpolicies"
+	LRPTableName   = "localredirectpolicies"
+	CCLRPTableName = "localredirects"
 )
 
 var (
@@ -68,6 +70,56 @@ func NewLRPTable(db *statedb.DB) (statedb.RWTable[*LocalRedirectPolicy], error) 
 		lrpIDIndex,
 		lrpServiceIndex,
 		lrpAddressIndex,
+	)
+}
+
+var (
+	cclrpNameIndex = statedb.Index[*ClusterwideLocalRedirectPolicy, string]{
+		Name: "name",
+		FromObject: func(policy *ClusterwideLocalRedirectPolicy) index.KeySet {
+			return index.NewKeySet(index.String(policy.Name))
+		},
+		FromKey: index.String,
+		Unique:  true,
+	}
+
+	cclrpServiceIndex = statedb.Index[*ClusterwideLocalRedirectPolicy, lb.ServiceName]{
+		Name: "service",
+		FromObject: func(policy *ClusterwideLocalRedirectPolicy) index.KeySet {
+			if !policy.IsServiceMatcher() {
+				return index.KeySet{}
+			}
+			return index.NewKeySet(policy.ServiceMatcher.Key())
+		},
+		FromKey: index.Stringer[lb.ServiceName],
+		Unique:  false,
+	}
+
+	cclrpAddressIndex = statedb.Index[*ClusterwideLocalRedirectPolicy, cmtypes.AddrCluster]{
+		Name: "address",
+		FromObject: func(policy *ClusterwideLocalRedirectPolicy) index.KeySet {
+			if !policy.IsAddressMatcher() {
+				return index.KeySet{}
+			}
+			address := policy.AddressMatcher.As20()
+			return index.NewKeySet(index.Key(address[:]))
+		},
+		FromKey: func(address cmtypes.AddrCluster) index.Key {
+			key := address.As20()
+			return index.Key(key[:])
+		},
+		Unique: false,
+	}
+)
+
+// NewCCLRPTable creates the StateDB table containing normalised CCLRP intent.
+func NewCCLRPTable(db *statedb.DB) (statedb.RWTable[*ClusterwideLocalRedirectPolicy], error) {
+	return statedb.NewTable(
+		db,
+		CCLRPTableName,
+		cclrpNameIndex,
+		cclrpServiceIndex,
+		cclrpAddressIndex,
 	)
 }
 

@@ -31,6 +31,8 @@ var Cell = cell.Module(
 	cell.Provide(
 		// Provide Table[*LocalRedirectPolicy]. Used from replaceAPI.
 		statedb.RWTable[*LocalRedirectPolicy].ToTable,
+		// Provide Table[*ClusterwideLocalRedirectPolicy] for StateDB inspection.
+		statedb.RWTable[*ClusterwideLocalRedirectPolicy].ToTable,
 
 		// Wait for the CiliumLocalRedirectPolicy CRD when LRP is enabled.
 		lrpCRDSyncResourceNames,
@@ -48,13 +50,13 @@ var Cell = cell.Module(
 	cell.ProvidePrivate(
 		newLRPListerWatcher,
 		NewLRPTable,
+		NewCCLRPTable,
 		newDesiredSkipLBTable,
 	),
 
 	cell.Invoke(
 		// Reflect the CiliumLocalRedirectPolicy CRDs into Table[*LocalRedirectPolicy]
 		registerLRPReflector,
-
 		// Register a controller to process the changes in the LRP, pod and frontend
 		// tables.
 		registerLRPController,
@@ -77,7 +79,6 @@ func lrpCRDSyncResourceNames(cfg Config) k8sSynced.CRDSyncResourceNamesOut {
 	}
 	return k8sSynced.NewCRDSyncResourceNamesOut(
 		k8sSynced.CRDResourceName(ciliumv2.CLRPName),
-		k8sSynced.CRDResourceName(ciliumv2.CCLRPName),
 	)
 }
 
