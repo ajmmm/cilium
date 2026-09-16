@@ -70,6 +70,12 @@ func (policy *ClusterwideLocalRedirectPolicy) IsServiceMatcher() bool {
 	return policy.ServiceMatcher != nil
 }
 
+// RedirectServiceName returns the internal service name used for the local
+// backends selected by this policy.
+func (policy *ClusterwideLocalRedirectPolicy) RedirectServiceName() lb.ServiceName {
+	return lb.NewServiceName("cilium", "cclrp-"+policy.Name+localRedirectServiceSuffix)
+}
+
 // ClusterwideLocalRedirectPort is a normalised CCLRP source-to-target port mapping.
 type ClusterwideLocalRedirectPort struct {
 	// Port is the source port on the matched frontend.
