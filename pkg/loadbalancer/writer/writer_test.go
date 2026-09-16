@@ -677,6 +677,44 @@ func TestWriter_SetBackends(t *testing.T) {
 	}
 }
 
+func TestWriter_SetBackendsOfClusterIfChangedDoesNotRefreshUnchanged(t *testing.T) {
+	p := fixture(t)
+	name := loadbalancer.NewServiceName("test", "test")
+	frontendAddress := loadbalancer.NewL3n4Addr(loadbalancer.TCP, intToAddr(1), 80, loadbalancer.ScopeExternal)
+	backendAddress := loadbalancer.NewL3n4Addr(loadbalancer.TCP, intToAddr(2), 8080, loadbalancer.ScopeExternal)
+	backend := loadbalancer.Backend{Address: backendAddress}
+
+	wtxn := p.Writer.WriteTxn()
+	require.NoError(t, p.Writer.UpsertServiceAndFrontends(
+		wtxn,
+		&loadbalancer.Service{Name: name},
+		loadbalancer.FrontendParams{
+			Address:     frontendAddress,
+			ServiceName: name,
+			Type:        loadbalancer.SVCTypeClusterIP,
+		},
+	))
+	changed, err := p.Writer.SetBackendsOfClusterIfChanged(wtxn, name, source.Kubernetes, backend)
+	require.NoError(t, err)
+	require.True(t, changed)
+	wtxn.Commit()
+
+	txn := p.DB.ReadTxn()
+	_, firstRevision, found := p.FrontendTable.Get(txn, loadbalancer.FrontendByAddress(frontendAddress))
+	require.True(t, found)
+
+	wtxn = p.Writer.WriteTxn()
+	changed, err = p.Writer.SetBackendsOfClusterIfChanged(wtxn, name, source.Kubernetes, backend)
+	require.NoError(t, err)
+	require.False(t, changed)
+	wtxn.Commit()
+
+	txn = p.DB.ReadTxn()
+	_, secondRevision, found := p.FrontendTable.Get(txn, loadbalancer.FrontendByAddress(frontendAddress))
+	require.True(t, found)
+	require.Equal(t, firstRevision, secondRevision)
+}
+
 func TestWriter_WithConflictingSources(t *testing.T) {
 	p := fixture(t)
 

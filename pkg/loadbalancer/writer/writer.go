@@ -713,17 +713,28 @@ func (w *Writer) SetBackends(txn WriteTxn, name loadbalancer.ServiceName, source
 	return w.SetBackendsOfCluster(txn, name, source, LocalClusterID, bes...)
 }
 
+// SetBackendsOfClusterIfChanged sets the backends associated with a service and
+// refreshes its frontends only when the backend set changed.
+func (w *Writer) SetBackendsOfClusterIfChanged(txn WriteTxn, name loadbalancer.ServiceName, source source.Source, bes ...loadbalancer.Backend) (bool, error) {
+	return w.setBackendsOfCluster(txn, name, source, LocalClusterID, true, bes...)
+}
+
 // SetBackendsOfCluster sets the backends associated with a service from the specified cluster. It will
 // not affect the backends from other clusters associated with the service.
 func (w *Writer) SetBackendsOfCluster(txn WriteTxn, name loadbalancer.ServiceName, source source.Source, clusterID uint32, bes ...loadbalancer.Backend) error {
+	_, err := w.setBackendsOfCluster(txn, name, source, clusterID, false, bes...)
+	return err
+}
+
+func (w *Writer) setBackendsOfCluster(txn WriteTxn, name loadbalancer.ServiceName, source source.Source, clusterID uint32, onlyIfChanged bool, bes ...loadbalancer.Backend) (bool, error) {
 	addrs := sets.New[loadbalancer.L3n4Addr]()
 	for _, be := range bes {
 		addrs.Insert(be.Address)
 	}
 
-	_, err := w.updateBackends(txn, name, source, clusterID, slices.Values(bes))
+	changed, err := w.updateBackends(txn, name, source, clusterID, slices.Values(bes))
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// Release orphaned backends, e.g. all backends from this source referencing this
@@ -737,12 +748,21 @@ func (w *Writer) SetBackendsOfCluster(txn WriteTxn, name loadbalancer.ServiceNam
 			continue
 		}
 		if _, _, err := w.bes.Delete(txn, be); err != nil {
-			return err
+			return false, err
 		}
+		changed = true
 	}
 
-	// Recompute the backends associated with each frontend.
-	return w.RefreshFrontends(txn, name)
+	if !onlyIfChanged || changed {
+		// Recompute the backends associated with each frontend. When the caller
+		// asks for change detection, skipping this insert is important: the
+		// frontend table is watched by reconcilers, and an unconditional refresh
+		// would wake them even though the effective backend set is unchanged.
+		if err := w.RefreshFrontends(txn, name); err != nil {
+			return false, err
+		}
+	}
+	return changed, nil
 }
 
 func (w *Writer) updateBackends(txn WriteTxn, serviceName loadbalancer.ServiceName, source source.Source, clusterID uint32, bes iter.Seq[loadbalancer.Backend]) (bool, error) {
@@ -765,7 +785,9 @@ func (w *Writer) updateBackends(txn WriteTxn, serviceName loadbalancer.ServiceNa
 			be.Unhealthy = old.Unhealthy
 			be.UnhealthyUpdatedAt = old.UnhealthyUpdatedAt
 			if old.DeepEqual(&be) {
-				// None of the parameters have changed. Skip the update.
+				// None of the parameters have changed. Keep the existing StateDB
+				// object and revision; replacing it would publish a needless event
+				// and could cause a dependent reconciler to run again.
 				continue
 			}
 		}
