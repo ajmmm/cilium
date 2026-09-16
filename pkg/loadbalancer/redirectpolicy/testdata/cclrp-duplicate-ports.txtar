@@ -1,0 +1,30 @@
+# Duplicate source port/protocol entries are rejected as ambiguous.
+
+hive start
+
+k8s/add cclrp.yaml
+db/cmp localredirects empty.table
+
+# ---
+
+-- cclrp.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: duplicate-ports
+spec:
+  addressMatcher:
+    ip: 169.254.169.254
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+  - port: "8080"
+    targetPort: "80"
+    protocol: TCP
+  - port: "8080"
+    targetPort: "8081"
+    protocol: TCP
+
+-- empty.table --
+Name  Type  Address  Service  Ports  LocalEndpointSelector

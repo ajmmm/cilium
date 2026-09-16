@@ -1,0 +1,153 @@
+# Verify that every CCLRP matcher and port form is reflected into normalized
+# localredirects state without constructing concrete Service frontends or backends.
+
+hive start
+
+# AddressMatcher with one port, AddressMatcher with multiple ports, a
+# ServiceMatcher inheriting all Service ports, and explicit single- and
+# multi-port ServiceMatcher policies are all reflected independently.
+k8s/add cclrp-address.yaml cclrp-address-multi.yaml cclrp-service-all.yaml cclrp-service-single.yaml cclrp-service-multi.yaml
+db/cmp localredirects initial.table
+
+# Updating a cluster-scoped multi-port address policy updates the reflected state.
+k8s/update cclrp-address-multi-updated.yaml
+db/cmp localredirects updated.table
+
+# Deleting the all-ports ServiceMatcher leaves the other matcher/port forms intact.
+k8s/delete cclrp-service-all.yaml
+db/cmp localredirects without-service-all.table
+
+k8s/delete cclrp-address.yaml cclrp-address-multi-updated.yaml cclrp-service-single.yaml cclrp-service-multi.yaml
+db/cmp localredirects empty.table
+
+# ---
+
+-- initial.table --
+Name                    Type     Address          Service    Ports                         LocalEndpointSelector
+cclrp-address           address  169.254.169.254             8080->80/TCP                  &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+cclrp-address-multi     address  169.254.169.253             8080->80/TCP, 8443->8443/TCP  &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+cclrp-service-all       service                   test/all                                 &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+cclrp-service-multi     service                   test/multi 80->8080/TCP, 8443->443/TCP   &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+cclrp-service-single    service                   test/one   80->8080/TCP                  &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+
+-- updated.table --
+Name                    Type     Address          Service    Ports                         LocalEndpointSelector
+cclrp-address           address  169.254.169.254             8080->80/TCP                  &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+cclrp-address-multi     address  169.254.169.252             8080->80/TCP, 8443->8443/TCP  &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+cclrp-service-all       service                   test/all                                 &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+cclrp-service-multi     service                   test/multi 80->8080/TCP, 8443->443/TCP   &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+cclrp-service-single    service                   test/one   80->8080/TCP                  &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+
+-- without-service-all.table --
+Name                    Type     Address          Service    Ports                         LocalEndpointSelector
+cclrp-address           address  169.254.169.254             8080->80/TCP                  &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+cclrp-address-multi     address  169.254.169.252             8080->80/TCP, 8443->8443/TCP  &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+cclrp-service-multi     service                   test/multi 80->8080/TCP, 8443->443/TCP   &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+cclrp-service-single    service                   test/one   80->8080/TCP                  &LabelSelector{MatchLabels:map[string]string{k8s:app: proxy,},MatchExpressions:[]LabelSelectorRequirement{},}
+
+-- empty.table --
+Name  Type  Address  Service  Ports  LocalEndpointSelector
+
+-- cclrp-address.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-address
+spec:
+  addressMatcher:
+    ip: 169.254.169.254
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8080"
+      targetPort: "80"
+      protocol: TCP
+
+-- cclrp-address-multi.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-address-multi
+spec:
+  addressMatcher:
+    ip: 169.254.169.253
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8080"
+      targetPort: "80"
+      protocol: TCP
+    - port: "8443"
+      targetPort: "8443"
+      protocol: TCP
+
+-- cclrp-address-multi-updated.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-address-multi
+spec:
+  addressMatcher:
+    ip: 169.254.169.252
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "8080"
+      targetPort: "80"
+      protocol: TCP
+    - port: "8443"
+      targetPort: "8443"
+      protocol: TCP
+
+-- cclrp-service-all.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-service-all
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: all
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+
+-- cclrp-service-single.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-service-single
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: one
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "80"
+      targetPort: "8080"
+      protocol: TCP
+
+-- cclrp-service-multi.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: cclrp-service-multi
+spec:
+  serviceMatcher:
+    namespace: test
+    serviceName: multi
+  localEndpointSelector:
+    matchLabels:
+      app: proxy
+  ports:
+    - port: "80"
+      targetPort: "8080"
+      protocol: TCP
+    - port: "8443"
+      targetPort: "443"
+      protocol: TCP

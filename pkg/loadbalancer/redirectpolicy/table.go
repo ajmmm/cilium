@@ -171,3 +171,78 @@ func registerLRPReflector(cfg Config, db *statedb.DB, log *slog.Logger, jg job.G
 			},
 		})
 }
+
+type cclrpListerWatcher cache.ListerWatcher
+
+func newCCLRPListerWatcher(cs client.Clientset) cclrpListerWatcher {
+	if !cs.IsEnabled() {
+		return nil
+	}
+	return k8sUtils.ListerWatcherFromTyped(cs.CiliumV2().CiliumClusterwideLocalRedirectPolicies())
+}
+
+// cclrpReflector reflects Kubernetes CCLRP resources into the normalised
+// localredirects table.
+type cclrpReflector struct {
+	cfg Config
+
+	db *statedb.DB
+
+	log *slog.Logger
+
+	lw cclrpListerWatcher
+
+	cclrps statedb.RWTable[*ClusterwideLocalRedirectPolicy]
+}
+
+func newCCLRPReflector(
+	cfg Config,
+	db *statedb.DB,
+	log *slog.Logger,
+	lw cclrpListerWatcher,
+	cclrps statedb.RWTable[*ClusterwideLocalRedirectPolicy],
+) *cclrpReflector {
+	return &cclrpReflector{
+		cfg:    cfg,
+		db:     db,
+		log:    log,
+		lw:     lw,
+		cclrps: cclrps,
+	}
+}
+
+func registerCCLRPReflector(jg job.Group, reflector *cclrpReflector) {
+	if !reflector.cfg.IsEnabled() || reflector.lw == nil {
+		return
+	}
+
+	k8s.RegisterReflector(jg, reflector.db,
+		k8s.ReflectorConfig[*ClusterwideLocalRedirectPolicy]{
+			Name:          "cclrps",
+			Table:         reflector.cclrps,
+			ListerWatcher: reflector.lw,
+			MetricScope:   "CiliumClusterwideLocalRedirectPolicy",
+			TransformMany: func(_ statedb.ReadTxn, deleted bool, obj any) (toInsert, toDelete iter.Seq[*ClusterwideLocalRedirectPolicy]) {
+				clrp := obj.(*ciliumv2.CiliumClusterwideLocalRedirectPolicy)
+				policy, err := parseCCLRP(reflector.cfg, clrp)
+				if err != nil {
+					reflector.log.Warn("Rejecting malformed CiliumClusterwideLocalRedirectPolicy",
+						logfields.Name, clrp.Name,
+						logfields.Error, err)
+					toDelete = func(yield func(*ClusterwideLocalRedirectPolicy) bool) {
+						yield(&ClusterwideLocalRedirectPolicy{Name: clrp.Name, UID: clrp.UID})
+					}
+				} else {
+					it := func(yield func(*ClusterwideLocalRedirectPolicy) bool) {
+						yield(policy)
+					}
+					if deleted {
+						toDelete = it
+					} else {
+						toInsert = it
+					}
+				}
+				return
+			},
+		})
+}

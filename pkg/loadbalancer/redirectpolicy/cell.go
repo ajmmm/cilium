@@ -17,8 +17,9 @@ import (
 	"github.com/cilium/cilium/pkg/metrics/metric"
 )
 
-// Cell implements the processing of the CiliumLocalRedirectPolicy CRD.
-// For each policy it creates a pseudo-service with suffix -local-redirect
+// Cell implements the processing of the CiliumLocalRedirectPolicy and
+// CiliumClusterwideLocalRedirectPolicy CRDs.
+// For each legacy policy it creates a pseudo-service with suffix -local-redirect
 // and associates to it all matching local pods as backends. The service
 // frontends that are being redirected will then take the backends of the
 // pseudo-service.
@@ -34,7 +35,7 @@ var Cell = cell.Module(
 		// Provide Table[*ClusterwideLocalRedirectPolicy] for StateDB inspection.
 		statedb.RWTable[*ClusterwideLocalRedirectPolicy].ToTable,
 
-		// Wait for the CiliumLocalRedirectPolicy CRD when LRP is enabled.
+		// Wait for the local redirect policy CRDs when LRP is enabled.
 		lrpCRDSyncResourceNames,
 
 		// Provide the [lbmap.SkipLBMap]. Provided globally to register it.
@@ -49,14 +50,19 @@ var Cell = cell.Module(
 
 	cell.ProvidePrivate(
 		newLRPListerWatcher,
+		newCCLRPListerWatcher,
 		NewLRPTable,
 		NewCCLRPTable,
+		newCCLRPReflector,
 		newDesiredSkipLBTable,
 	),
 
 	cell.Invoke(
 		// Reflect the CiliumLocalRedirectPolicy CRDs into Table[*LocalRedirectPolicy]
 		registerLRPReflector,
+		// Reflect CiliumClusterwideLocalRedirectPolicy CRDs into the normalised
+		// CCLRP intent table.
+		registerCCLRPReflector,
 		// Register a controller to process the changes in the LRP, pod and frontend
 		// tables.
 		registerLRPController,
@@ -79,6 +85,7 @@ func lrpCRDSyncResourceNames(cfg Config) k8sSynced.CRDSyncResourceNamesOut {
 	}
 	return k8sSynced.NewCRDSyncResourceNamesOut(
 		k8sSynced.CRDResourceName(ciliumv2.CLRPName),
+		k8sSynced.CRDResourceName(ciliumv2.CCLRPName),
 	)
 }
 
