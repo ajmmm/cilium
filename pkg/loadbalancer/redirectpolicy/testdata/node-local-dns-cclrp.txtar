@@ -1,0 +1,255 @@
+# Verify the node-local-DNS pattern with a cluster-wide local redirect policy.
+# CCLRP explicitly selects the DNS Service ports and constrains the matching
+# local endpoints to kube-system, leaving the Service metrics port untouched.
+
+hive start
+
+k8s/add service.yaml endpointslice.yaml
+db/cmp frontends frontends-before.table
+
+k8s/add cclrp.yaml pod-1.yaml
+db/cmp localredirectmappings mappings-one.table
+db/cmp frontends frontends-one.table
+db/cmp backends backends-one.table
+
+# A second matching local endpoint is added and appears in both DNS protocols.
+k8s/add pod-2.yaml
+db/cmp localredirectmappings mappings-two.table
+db/cmp frontends frontends-two.table
+db/cmp backends backends-two.table
+
+# A matching Pod without the namespace constraint would be selected, but the
+# explicit namespace label keeps this policy scoped to kube-system.
+k8s/add pod-other-namespace.yaml
+db/cmp backends backends-two.table
+
+# Removing one local endpoint removes it from the redirected DNS frontends.
+k8s/delete pod-2.yaml
+db/cmp frontends frontends-one.table
+db/cmp backends backends-one.table
+
+# Removing the CCLRP restores the original Service backends and removes the
+# CCLRP pseudo-service.
+k8s/delete cclrp.yaml pod-1.yaml pod-other-namespace.yaml
+db/cmp frontends frontends-before.table
+db/cmp backends backends-service-only.table
+
+# ---
+
+-- mappings-one.table --
+Policy       FrontendAddress              TargetPort  Status   Error
+nodelocaldns 10.96.0.10:53/TCP            53/TCP      Pending
+nodelocaldns 10.96.0.10:53/UDP            53/UDP      Pending
+
+-- mappings-two.table --
+Policy       FrontendAddress              TargetPort  Status  Error
+nodelocaldns 10.96.0.10:53/TCP            53/TCP      Done
+nodelocaldns 10.96.0.10:53/UDP            53/UDP      Done
+
+-- frontends-before.table --
+Address                    Type        ServiceName           PortName   RedirectTo   Status  Backends
+10.96.0.10:53/TCP          ClusterIP   kube-system/kube-dns  dns-tcp                 Done    10.244.1.51:53/TCP, 10.244.1.68:53/TCP
+10.96.0.10:53/UDP          ClusterIP   kube-system/kube-dns  dns                     Done    10.244.1.51:53/UDP, 10.244.1.68:53/UDP
+10.96.0.10:9153/TCP        ClusterIP   kube-system/kube-dns  metrics                 Done    10.244.1.51:9153/TCP, 10.244.1.68:9153/TCP
+
+-- frontends-one.table --
+Address                    Type        ServiceName           PortName   RedirectTo                               Status  Backends
+10.96.0.10:53/TCP          ClusterIP   kube-system/kube-dns  dns-tcp    cilium/cclrp-nodelocaldns:local-redirect Done    10.244.0.225:53/TCP
+10.96.0.10:53/UDP          ClusterIP   kube-system/kube-dns  dns        cilium/cclrp-nodelocaldns:local-redirect Done    10.244.0.225:53/UDP
+10.96.0.10:9153/TCP        ClusterIP   kube-system/kube-dns  metrics                                             Done    10.244.1.51:9153/TCP, 10.244.1.68:9153/TCP
+
+-- frontends-two.table --
+Address                    Type        ServiceName           PortName   RedirectTo                               Status  Backends
+10.96.0.10:53/TCP          ClusterIP   kube-system/kube-dns  dns-tcp    cilium/cclrp-nodelocaldns:local-redirect Done    10.244.0.225:53/TCP, 10.244.0.226:53/TCP
+10.96.0.10:53/UDP          ClusterIP   kube-system/kube-dns  dns        cilium/cclrp-nodelocaldns:local-redirect Done    10.244.0.225:53/UDP, 10.244.0.226:53/UDP
+10.96.0.10:9153/TCP        ClusterIP   kube-system/kube-dns  metrics                                             Done    10.244.1.51:9153/TCP, 10.244.1.68:9153/TCP
+
+-- backends-one.table --
+Service                                  Address               NodeName
+cilium/cclrp-nodelocaldns:local-redirect 10.244.0.225:53/TCP
+cilium/cclrp-nodelocaldns:local-redirect 10.244.0.225:53/UDP
+kube-system/kube-dns                     10.244.1.51:53/TCP    testnode
+kube-system/kube-dns                     10.244.1.51:53/UDP    testnode
+kube-system/kube-dns                     10.244.1.51:9153/TCP  testnode
+kube-system/kube-dns                     10.244.1.68:53/TCP    testnode
+kube-system/kube-dns                     10.244.1.68:53/UDP    testnode
+kube-system/kube-dns                     10.244.1.68:9153/TCP  testnode
+
+-- backends-two.table --
+Service                                  Address               NodeName
+cilium/cclrp-nodelocaldns:local-redirect 10.244.0.225:53/TCP
+cilium/cclrp-nodelocaldns:local-redirect 10.244.0.225:53/UDP
+cilium/cclrp-nodelocaldns:local-redirect 10.244.0.226:53/TCP
+cilium/cclrp-nodelocaldns:local-redirect 10.244.0.226:53/UDP
+kube-system/kube-dns                     10.244.1.51:53/TCP    testnode
+kube-system/kube-dns                     10.244.1.51:53/UDP    testnode
+kube-system/kube-dns                     10.244.1.51:9153/TCP  testnode
+kube-system/kube-dns                     10.244.1.68:53/TCP    testnode
+kube-system/kube-dns                     10.244.1.68:53/UDP    testnode
+kube-system/kube-dns                     10.244.1.68:9153/TCP  testnode
+
+-- backends-service-only.table --
+Service              Address              NodeName
+kube-system/kube-dns 10.244.1.51:53/TCP   testnode
+kube-system/kube-dns 10.244.1.51:53/UDP   testnode
+kube-system/kube-dns 10.244.1.51:9153/TCP testnode
+kube-system/kube-dns 10.244.1.68:53/TCP   testnode
+kube-system/kube-dns 10.244.1.68:53/UDP   testnode
+kube-system/kube-dns 10.244.1.68:9153/TCP testnode
+
+-- service.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-dns
+  namespace: kube-system
+spec:
+  type: ClusterIP
+  clusterIP: 10.96.0.10
+  ports:
+  - name: dns
+    port: 53
+    protocol: UDP
+    targetPort: 53
+  - name: dns-tcp
+    port: 53
+    protocol: TCP
+    targetPort: 53
+  - name: metrics
+    port: 9153
+    protocol: TCP
+    targetPort: 9153
+  selector:
+    k8s-app: kube-dns
+
+-- endpointslice.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: kube-dns
+  namespace: kube-system
+  labels:
+    kubernetes.io/service-name: kube-dns
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.51
+  nodeName: testnode
+  conditions:
+    ready: true
+- addresses:
+  - 10.244.1.68
+  nodeName: testnode
+  conditions:
+    ready: true
+ports:
+- name: dns
+  port: 53
+  protocol: UDP
+- name: dns-tcp
+  port: 53
+  protocol: TCP
+- name: metrics
+  port: 9153
+  protocol: TCP
+
+-- cclrp.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideLocalRedirectPolicy
+metadata:
+  name: nodelocaldns
+spec:
+  serviceMatcher:
+    namespace: kube-system
+    serviceName: kube-dns
+  localEndpointSelector:
+    matchLabels:
+      k8s-app: node-local-dns
+      io.kubernetes.pod.namespace: kube-system
+  ports:
+  - port: "53"
+    targetPort: "53"
+    protocol: TCP
+  - port: "53"
+    targetPort: "53"
+    protocol: UDP
+
+-- pod-1.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: node-local-dns-1
+  namespace: kube-system
+  labels:
+    k8s-app: node-local-dns
+spec:
+  nodeName: testnode
+  containers:
+  - name: node-cache
+    image: node-local-dns
+    ports:
+    - name: dns
+      containerPort: 53
+      protocol: UDP
+    - name: dns-tcp
+      containerPort: 53
+      protocol: TCP
+status:
+  phase: Running
+  podIP: 10.244.0.225
+  podIPs:
+  - ip: 10.244.0.225
+  conditions:
+  - type: Ready
+    status: "True"
+
+-- pod-2.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: node-local-dns-2
+  namespace: kube-system
+  labels:
+    k8s-app: node-local-dns
+spec:
+  nodeName: testnode
+  containers:
+  - name: node-cache
+    image: node-local-dns
+    ports:
+    - name: dns
+      containerPort: 53
+      protocol: UDP
+    - name: dns-tcp
+      containerPort: 53
+      protocol: TCP
+status:
+  phase: Running
+  podIP: 10.244.0.226
+  podIPs:
+  - ip: 10.244.0.226
+  conditions:
+  - type: Ready
+    status: "True"
+
+-- pod-other-namespace.yaml --
+apiVersion: v1
+kind: Pod
+metadata:
+  name: node-local-dns-other
+  namespace: other
+  labels:
+    k8s-app: node-local-dns
+spec:
+  nodeName: testnode
+  containers:
+  - name: node-cache
+    image: node-local-dns
+status:
+  phase: Running
+  podIP: 10.244.0.227
+  podIPs:
+  - ip: 10.244.0.227
+  conditions:
+  - type: Ready
+    status: "True"
