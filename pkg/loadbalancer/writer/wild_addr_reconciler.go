@@ -25,6 +25,7 @@ type wildcardAddressReconcilerParams struct {
 	cell.In
 
 	Lifecycle cell.Lifecycle
+	Config    loadbalancer.Config
 	JobGroup  job.Group
 	Log       *slog.Logger
 
@@ -35,10 +36,11 @@ type wildcardAddressReconcilerParams struct {
 
 func registerWildcardAddressReconciler(p wildcardAddressReconcilerParams) {
 	r := wildcardAddressReconciler{
-		log:       p.Log,
-		db:        p.DB,
-		nodeAddrs: p.NodeAddresses,
-		frontends: p.Frontends.(statedb.RWTable[*loadbalancer.Frontend]),
+		log:               p.Log,
+		db:                p.DB,
+		nodeAddrs:         p.NodeAddresses,
+		frontends:         p.Frontends.(statedb.RWTable[*loadbalancer.Frontend]),
+		externalClusterIP: p.Config.ExternalClusterIP,
 	}
 
 	// Grab the initial read transaction synchronously from a start hook so the
@@ -54,11 +56,12 @@ func registerWildcardAddressReconciler(p wildcardAddressReconcilerParams) {
 }
 
 type wildcardAddressReconciler struct {
-	log       *slog.Logger
-	db        *statedb.DB
-	nodeAddrs statedb.Table[tables.NodeAddress]
-	frontends statedb.RWTable[*loadbalancer.Frontend]
-	initTxn   statedb.ReadTxn
+	log               *slog.Logger
+	db                *statedb.DB
+	nodeAddrs         statedb.Table[tables.NodeAddress]
+	frontends         statedb.RWTable[*loadbalancer.Frontend]
+	externalClusterIP bool
+	initTxn           statedb.ReadTxn
 }
 
 func (r *wildcardAddressReconciler) getAddrs(txn statedb.ReadTxn) ([]netip.Addr, <-chan struct{}) {
@@ -97,7 +100,7 @@ func (r *wildcardAddressReconciler) wildcardAddressReconcilerLoop(ctx context.Co
 			// check if an FE is a wildcard candidate to reduce noise. It's not perfect but can
 			// be improved later if it becomes a bottleneck.
 			for fe := range r.frontends.All(wtxn) {
-				if !loadbalancer.IsWildcardCandidate(fe) {
+				if !loadbalancer.IsWildcardCandidate(fe, r.externalClusterIP) {
 					continue
 				}
 

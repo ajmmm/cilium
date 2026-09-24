@@ -432,7 +432,7 @@ func TestWriter_WildcardAddressReconciler(t *testing.T) {
 		loadbalancer.FrontendParams{
 			ServiceName: wildcardName,
 			Address:     wildcardAddr,
-			Type:        loadbalancer.SVCTypeClusterIP,
+			Type:        loadbalancer.SVCTypeLoadBalancer,
 			ServicePort: wildcardAddr.Port(),
 		},
 	))

@@ -102,12 +102,19 @@ func (fe *Frontend) Clone() *Frontend {
 	return &fe2
 }
 
-// IsWildcardCandidate returns true if the frontend is structurally eligible
-// to parent a wildcard service entry.
-func IsWildcardCandidate(fe *Frontend) bool {
+// IsWildcardCandidate returns true if the frontend is eligible to parent a
+// wildcard service entry.
+//
+// externalClusterIP controls whether ClusterIP frontends are reachable from
+// outside the cluster and therefore eligible to parent a wildcard.
+func IsWildcardCandidate(fe *Frontend, externalClusterIP bool) bool {
 	switch fe.Type {
-	case SVCTypeLoadBalancer, SVCTypeClusterIP:
+	case SVCTypeLoadBalancer:
+		// In the LoadBalancer case, traffic in the N/S direction will hit an
+		// ExternalScope VIP, so this is candidate to parent a wildcard.
 		return fe.Address.Scope() == ScopeExternal
+	case SVCTypeClusterIP:
+		return externalClusterIP
 	default:
 		return false
 	}

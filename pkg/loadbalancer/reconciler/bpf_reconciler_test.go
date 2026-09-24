@@ -296,7 +296,6 @@ var clusterIPTestCases = []testCase{
 		},
 		[]maps.MapDump{
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 		},
 		nil,
@@ -313,7 +312,6 @@ var clusterIPTestCases = []testCase{
 		[]maps.MapDump{
 			"BE: ID=1 ADDR=10.1.0.1:80/TCP STATE=active",
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=1 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=1 BEID=1 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 		},
@@ -334,7 +332,6 @@ var clusterIPTestCases = []testCase{
 			"BE: ID=1 ADDR=10.1.0.1:80/TCP STATE=active",
 			"BE: ID=2 ADDR=10.1.0.2:80/TCP STATE=active",
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=2 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=1 BEID=1 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=2 BEID=2 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
@@ -360,7 +357,6 @@ var clusterIPTestCases = []testCase{
 			"BE: ID=3 ADDR=10.1.0.2@10:80/TCP STATE=active",
 			"BE: ID=4 ADDR=10.1.0.2@20:80/TCP STATE=active",
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=4 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=1 BEID=1 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=2 BEID=2 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
@@ -380,7 +376,6 @@ var clusterIPTestCases = []testCase{
 		},
 		[]maps.MapDump{
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 		},
 		nil,
@@ -398,8 +393,6 @@ var clusterIPTestCases = []testCase{
 		[]maps.MapDump{
 			"REV: ID=1 ADDR=<auto>",
 			"REV: ID=2 ADDR=10.0.0.2:80",
-			"SVC: ID=0 ADDR=10.0.0.2:0/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 			"SVC: ID=2 ADDR=10.0.0.2:80/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 		},
@@ -412,7 +405,6 @@ var clusterIPTestCases = []testCase{
 		deleteFrontend(extraFrontend, ClusterIP),
 		[]maps.MapDump{
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 		},
 		nil,
@@ -430,8 +422,6 @@ var clusterIPTestCases = []testCase{
 		[]maps.MapDump{
 			"REV: ID=1 ADDR=<auto>",
 			"REV: ID=3 ADDR=10.0.0.2:80",
-			"SVC: ID=0 ADDR=10.0.0.2:0/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 			"SVC: ID=3 ADDR=10.0.0.2:80/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 		},
@@ -444,7 +434,6 @@ var clusterIPTestCases = []testCase{
 		deleteFrontend(extraFrontend, ClusterIP),
 		[]maps.MapDump{
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 		},
 		nil,
@@ -474,7 +463,6 @@ var quarantineTestCases = []testCase{
 			"BE: ID=1 ADDR=10.1.0.1:80/TCP STATE=active",
 			"BE: ID=2 ADDR=10.1.0.2:80/TCP STATE=active",
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=2 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=1 BEID=1 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=2 BEID=2 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
@@ -496,7 +484,6 @@ var quarantineTestCases = []testCase{
 			"BE: ID=1 ADDR=10.1.0.1:80/TCP STATE=quarantined",
 			"BE: ID=2 ADDR=10.1.0.2:80/TCP STATE=active",
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=1 QCOUNT=1 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=1 BEID=2 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=2 BEID=1 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable+quarantined",
@@ -653,7 +640,6 @@ var proxyTestCases = []testCase{
 		[]maps.MapDump{
 			"BE: ID=1 ADDR=10.1.0.1:80/TCP STATE=active",
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 L7Proxy=2570 COUNT=1 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable+l7-load-balancer",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=1 BEID=1 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable+l7-load-balancer",
 		},
@@ -684,7 +670,6 @@ var proxyTestCases = []testCase{
 		[]maps.MapDump{
 			"BE: ID=2 ADDR=10.1.0.1:80/TCP STATE=active",
 			"REV: ID=2 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=2 ADDR=<auto>/TCP SLOT=0 L7Proxy=2570 COUNT=1 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable+l7-load-balancer",
 			"SVC: ID=2 ADDR=<auto>/TCP SLOT=1 BEID=2 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable+l7-load-balancer",
 		},
@@ -709,8 +694,6 @@ var proxyTestCases = []testCase{
 			"BE: ID=2 ADDR=10.1.0.1:80/TCP STATE=active",
 			"REV: ID=2 ADDR=<auto>",
 			"REV: ID=3 ADDR=10.0.0.2:443",
-			"SVC: ID=0 ADDR=10.0.0.2:0/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=2 ADDR=<auto>/TCP SLOT=0 L7Proxy=2570 COUNT=1 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable+l7-load-balancer",
 			"SVC: ID=2 ADDR=<auto>/TCP SLOT=1 BEID=2 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable+l7-load-balancer",
 			"SVC: ID=3 ADDR=10.0.0.2:443/TCP SLOT=0 L7Proxy=2827 COUNT=1 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable+l7-load-balancer",
@@ -725,7 +708,6 @@ var proxyTestCases = []testCase{
 		[]maps.MapDump{
 			"BE: ID=2 ADDR=10.1.0.1:80/TCP STATE=active",
 			"REV: ID=3 ADDR=10.0.0.2:443",
-			"SVC: ID=0 ADDR=10.0.0.2:0/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=3 ADDR=10.0.0.2:443/TCP SLOT=0 L7Proxy=2827 COUNT=1 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable+l7-load-balancer",
 			"SVC: ID=3 ADDR=10.0.0.2:443/TCP SLOT=1 BEID=2 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable+l7-load-balancer",
 		},
@@ -762,7 +744,6 @@ var miscFlagsTestCases = []testCase{
 		},
 		[]maps.MapDump{
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable+46x64",
 		},
 		nil,
@@ -779,7 +760,6 @@ var miscFlagsTestCases = []testCase{
 		},
 		[]maps.MapDump{
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+InternalLocal+non-routable",
 		},
 		nil,
@@ -796,7 +776,6 @@ var miscFlagsTestCases = []testCase{
 		},
 		[]maps.MapDump{
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+non-routable",
 		},
 		nil,
@@ -815,7 +794,6 @@ var miscFlagsTestCases = []testCase{
 		},
 		[]maps.MapDump{
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+non-routable",
 		},
 		nil,
@@ -1119,7 +1097,6 @@ var mapErrorTestCases = []testCase{
 		[]maps.MapDump{
 			"BE: ID=1 ADDR=10.1.0.1:80/TCP STATE=active",
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=1 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=1 BEID=1 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 		},
@@ -1158,7 +1135,6 @@ var mapErrorTestCases = []testCase{
 		[]maps.MapDump{
 			"BE: ID=2 ADDR=10.1.0.2:80/TCP STATE=active",
 			"REV: ID=1 ADDR=<auto>",
-			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=1 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=1 BEID=2 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 		},

@@ -281,10 +281,25 @@ func (ops *BPFOps) ResetAndRestore() (err error) {
 
 	// Gather all services key'd by address.
 	serviceSlots := map[loadbalancer.L3n4Addr][]maps.ServiceValue{}
+	var staleClusterIPWildcards []maps.ServiceKey
 	err = ops.LBMaps.DumpService(func(key maps.ServiceKey, value maps.ServiceValue) {
 		key = key.ToHost()
 		value = value.ToHost()
 		addr := svcKeyToAddr(key)
+
+		// wildcardReferences cannot be restored from the BPF maps because the
+		// wildcard entry does not contain its parent frontend IDs. When
+		// ExternalClusterIP is disabled, ClusterIP wildcard entries from the
+		// previous agent configuration are therefore stale and can be removed
+		// before restoring service IDs.
+		if key.GetBackendSlot() == 0 &&
+			key.GetPort() == WildcardPortNumber &&
+			key.GetProtocol() == uint8(WildcardProtoNumber) &&
+			!ops.cfg.ExternalClusterIP &&
+			loadbalancer.ServiceFlags(value.GetFlags()).SVCType() == loadbalancer.SVCTypeClusterIP {
+			staleClusterIPWildcards = append(staleClusterIPWildcards, key.ToNetwork())
+			return
+		}
 
 		s := slices.Grow(serviceSlots[addr], key.GetBackendSlot()+1)
 		s = s[:max(len(s), key.GetBackendSlot()+1)]
@@ -294,6 +309,12 @@ func (ops *BPFOps) ResetAndRestore() (err error) {
 	if err != nil {
 		return fmt.Errorf("restore service ids: %w", err)
 	}
+	for _, key := range staleClusterIPWildcards {
+		if err := ops.LBMaps.DeleteService(key); err != nil {
+			return fmt.Errorf("delete stale ClusterIP wildcard: %w", err)
+		}
+	}
+
 	for addr, slots := range serviceSlots {
 		// Restore the ID allocations from the BPF maps in order to reuse
 		// them and thus avoiding traffic disruptions.
@@ -1165,7 +1186,7 @@ func (ops *BPFOps) updateFrontend(fe *loadbalancer.Frontend, isLocalAddr func(ne
 
 	// Upsert wildcard entries such that the data path will have a service entry for any
 	// traffic for an unknown protocol/port combination.
-	shouldHaveWildcard := loadbalancer.IsWildcardCandidate(fe) &&
+	shouldHaveWildcard := loadbalancer.IsWildcardCandidate(fe, ops.cfg.ExternalClusterIP) &&
 		ops.isWildcardClass(svc) &&
 		ops.useWildcards() &&
 		(isLocalAddr == nil || !isLocalAddr(fe.Address.Addr()))
