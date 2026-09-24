@@ -285,6 +285,7 @@ func (ops *BPFOps) ResetAndRestore() (err error) {
 		key = key.ToHost()
 		value = value.ToHost()
 		addr := svcKeyToAddr(key)
+
 		s := slices.Grow(serviceSlots[addr], key.GetBackendSlot()+1)
 		s = s[:max(len(s), key.GetBackendSlot()+1)]
 		s[key.GetBackendSlot()] = value
@@ -293,7 +294,6 @@ func (ops *BPFOps) ResetAndRestore() (err error) {
 	if err != nil {
 		return fmt.Errorf("restore service ids: %w", err)
 	}
-
 	for addr, slots := range serviceSlots {
 		// Restore the ID allocations from the BPF maps in order to reuse
 		// them and thus avoiding traffic disruptions.
@@ -532,10 +532,8 @@ func (ops *BPFOps) deleteFrontend(fe *loadbalancer.Frontend) error {
 	delete(ops.prevSourceRanges, fe.Address)
 
 	// Cleanup any wildcard entries this fe might be associated with.
-	if loadbalancer.IsWildcardCandidate(fe) && ops.isWildcardClass(fe.Service) {
-		if err := ops.deleteWildcard(fe, feID); err != nil {
-			return fmt.Errorf("delete wildcard: %w", err)
-		}
+	if err := ops.deleteWildcard(fe, feID); err != nil {
+		return fmt.Errorf("delete wildcard: %w", err)
 	}
 
 	// Decrease the backend reference counts and drop state associated with the frontend.
@@ -1167,15 +1165,19 @@ func (ops *BPFOps) updateFrontend(fe *loadbalancer.Frontend, isLocalAddr func(ne
 
 	// Upsert wildcard entries such that the data path will have a service entry for any
 	// traffic for an unknown protocol/port combination.
-	if loadbalancer.IsWildcardCandidate(fe) && ops.isWildcardClass(svc) {
-		if ops.useWildcards() && (isLocalAddr == nil || !isLocalAddr(fe.Address.Addr())) {
-			if err := ops.upsertWildcard(fe, feID); err != nil {
-				return fmt.Errorf("upsert wildcard: %w", err)
-			}
-		} else {
-			if err := ops.deleteWildcard(fe, feID); err != nil {
-				return fmt.Errorf("delete wildcard: %w", err)
-			}
+	shouldHaveWildcard := loadbalancer.IsWildcardCandidate(fe) &&
+		ops.isWildcardClass(svc) &&
+		ops.useWildcards() &&
+		(isLocalAddr == nil || !isLocalAddr(fe.Address.Addr()))
+	if shouldHaveWildcard {
+		if err := ops.upsertWildcard(fe, feID); err != nil {
+			return fmt.Errorf("upsert wildcard: %w", err)
+		}
+	} else {
+		// Cleanup must not depend on the current service class or candidate
+		// status: either may have changed since the wildcard was created.
+		if err := ops.deleteWildcard(fe, feID); err != nil {
+			return fmt.Errorf("delete wildcard: %w", err)
 		}
 	}
 

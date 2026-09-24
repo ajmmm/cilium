@@ -165,11 +165,16 @@ type testCase struct {
 // faultyLBMaps wraps an LBMaps and can inject errors on map operations.
 type faultyLBMaps struct {
 	maps.LBMaps
-	fail              bool
-	failDeleteService bool
+	fail               bool
+	failDeleteService  bool
+	failUpdateWildcard bool
+	failDeleteWildcard bool
 }
 
 func (m *faultyLBMaps) UpdateService(key maps.ServiceKey, value maps.ServiceValue) error {
+	if m.failUpdateWildcard && key.GetPort() == WildcardPortNumber && key.GetProtocol() == uint8(WildcardProtoNumber) {
+		return errors.New("update wildcard service failed")
+	}
 	if m.fail && key.GetBackendSlot() > 0 {
 		return errors.New("update service failed")
 	}
@@ -177,6 +182,9 @@ func (m *faultyLBMaps) UpdateService(key maps.ServiceKey, value maps.ServiceValu
 }
 
 func (m *faultyLBMaps) DeleteService(key maps.ServiceKey) error {
+	if m.failDeleteWildcard && key.GetPort() == WildcardPortNumber && key.GetProtocol() == uint8(WildcardProtoNumber) {
+		return errors.New("delete wildcard service failed")
+	}
 	if m.failDeleteService {
 		return errors.New("delete service failed")
 	}
@@ -1644,6 +1652,50 @@ func TestIDMappingsPendingRestoreMetric(t *testing.T) {
 	require.NoError(t, ops.pruneRestoredIDs())
 	require.Zero(t, metrics.IDMappingsPendingRestore.WithLabelValues(idAllocTypeService).Get())
 	require.Zero(t, metrics.IDMappingsPendingRestore.WithLabelValues(idAllocTypeBackend).Get())
+}
+
+func TestWildcardReconcileFailureIsRetryable(t *testing.T) {
+	baseMaps := maps.NewFakeLBMaps()
+	faultyMaps := &faultyLBMaps{LBMaps: baseMaps}
+	ops := &BPFOps{
+		LBMaps:             faultyMaps,
+		log:                newRateLimitingLogger(hivetest.Logger(t)),
+		wildcardReferences: map[netip.Addr][]loadbalancer.ServiceID{},
+	}
+	fe := &loadbalancer.Frontend{
+		FrontendParams: loadbalancer.FrontendParams{
+			Address: frontendAddrs[0],
+			Type:    loadbalancer.SVCTypeLoadBalancer,
+		},
+	}
+
+	// A failed map update must not record an in-memory reference. Retrying
+	// after the failure should create exactly one reference.
+	faultyMaps.failUpdateWildcard = true
+	require.Error(t, ops.upsertWildcard(fe, 1))
+	require.Empty(t, ops.wildcardReferences)
+
+	faultyMaps.failUpdateWildcard = false
+	require.NoError(t, ops.upsertWildcard(fe, 1))
+	require.Equal(t, []loadbalancer.ServiceID{1}, ops.wildcardReferences[fe.Address.Addr()])
+	require.NoError(t, ops.upsertWildcard(fe, 1))
+	require.Equal(t, []loadbalancer.ServiceID{1}, ops.wildcardReferences[fe.Address.Addr()])
+
+	// A failed map delete must retain the reference so the retry can remove
+	// both the map entry and the reference.
+	faultyMaps.failDeleteWildcard = true
+	require.Error(t, ops.deleteWildcard(fe, 1))
+	require.Equal(t, []loadbalancer.ServiceID{1}, ops.wildcardReferences[fe.Address.Addr()])
+
+	faultyMaps.failDeleteWildcard = false
+	require.NoError(t, ops.deleteWildcard(fe, 1))
+	require.Empty(t, ops.wildcardReferences)
+
+	var serviceCount int
+	require.NoError(t, baseMaps.DumpService(func(maps.ServiceKey, maps.ServiceValue) {
+		serviceCount++
+	}))
+	require.Zero(t, serviceCount)
 }
 
 // showMaps formats the map dumps as the Go code expected in the test cases.
