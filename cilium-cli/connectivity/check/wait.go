@@ -298,6 +298,37 @@ func WaitForServiceRetrieval(ctx context.Context, log Logger, client *k8s.Client
 	}
 }
 
+// WaitForLoadBalancerService waits until the Service has an IP assigned to its
+// LoadBalancer frontend.
+func WaitForLoadBalancerService(parentCtx context.Context, log Logger, client *k8s.Client, namespace, name string) (Service, error) {
+	log.Logf("⌛ [%s] Waiting for LoadBalancer IP for service %s/%s ...", client.ClusterName(), namespace, name)
+
+	ctx, cancel := context.WithTimeout(parentCtx, LongTimeout)
+	defer cancel()
+
+	var lastErr error
+	for {
+		svc, err := client.GetService(ctx, namespace, name, metav1.GetOptions{})
+		if err == nil {
+			lastErr = errors.New("LoadBalancer Service has no ingress IP assigned")
+			for _, ingress := range svc.Status.LoadBalancer.Ingress {
+				if _, err := netip.ParseAddr(ingress.IP); err == nil {
+					return Service{Service: svc.DeepCopy()}, nil
+				}
+			}
+		} else {
+			lastErr = err
+		}
+
+		select {
+		case <-time.After(PollInterval):
+		case <-ctx.Done():
+			return Service{}, fmt.Errorf("timeout reached waiting for LoadBalancer IP for service %s/%s (last error: %w)",
+				namespace, name, lastErr)
+		}
+	}
+}
+
 // WaitForService waits until the given service is synchronized in CoreDNS.
 func WaitForService(parentCtx context.Context, log Logger, client Pod, service Service) error {
 	log.Logf("⌛ [%s] Waiting for Service %s to become ready...", client.K8sClient.ClusterName(), service.Name())

@@ -69,29 +69,30 @@ type ConnectivityTest struct {
 	// Clients for source and destination clusters.
 	clients *deploymentClients
 
-	ciliumPods               map[string]Pod
-	echoPods                 map[string]Pod
-	echoExternalPods         map[string]Pod
-	clientPods               map[string]Pod
-	clientCPPods             map[string]Pod
-	l7LBClientPods           map[string]Pod
-	perfClientPods           []Pod
-	perfServerPod            []Pod
-	perfProfilingPods        map[string]Pod
-	PerfResults              []common.PerfSummary
-	echoServices             map[string]Service
-	echoLocalNodePortService Service
-	echoExternalServices     map[string]Service
-	ingressService           map[string]Service
-	l7LBService              map[string]Service
-	l7LBNonL7Service         map[string]Service
-	k8sService               Service
-	lrpClientPods            map[string]Pod
-	lrpBackendPods           map[string]Pod
-	frrPods                  []Pod
-	socatServerPods          []Pod
-	socatClientPods          []Pod
-	ccnpTestPods             map[string]Pod
+	ciliumPods                   map[string]Pod
+	echoPods                     map[string]Pod
+	echoExternalPods             map[string]Pod
+	clientPods                   map[string]Pod
+	clientCPPods                 map[string]Pod
+	l7LBClientPods               map[string]Pod
+	perfClientPods               []Pod
+	perfServerPod                []Pod
+	perfProfilingPods            map[string]Pod
+	PerfResults                  []common.PerfSummary
+	echoServices                 map[string]Service
+	echoLocalNodePortService     Service
+	echoLocalLoadBalancerService Service
+	echoExternalServices         map[string]Service
+	ingressService               map[string]Service
+	l7LBService                  map[string]Service
+	l7LBNonL7Service             map[string]Service
+	k8sService                   Service
+	lrpClientPods                map[string]Pod
+	lrpBackendPods               map[string]Pod
+	frrPods                      []Pod
+	socatServerPods              []Pod
+	socatClientPods              []Pod
+	ccnpTestPods                 map[string]Pod
 
 	hostNetNSPodsByNode      map[string]Pod
 	secondaryNetworkNodeIPv4 map[string]string // node name => secondary ip
@@ -1265,6 +1266,12 @@ func (ct *ConnectivityTest) EchoServicesAll() map[string]Service {
 // externalTrafficPolicy=Local.
 func (ct *ConnectivityTest) EchoLocalNodePortService() Service {
 	return ct.echoLocalNodePortService
+}
+
+// EchoLocalLoadBalancerService returns the echo LoadBalancer Service with
+// externalTrafficPolicy=Local.
+func (ct *ConnectivityTest) EchoLocalLoadBalancerService() Service {
+	return ct.echoLocalLoadBalancerService
 }
 
 func (ct *ConnectivityTest) EchoExternalServices() map[string]Service {

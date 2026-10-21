@@ -263,6 +263,68 @@ func (s *podToLocalNodePortETPLocal) Run(ctx context.Context, t *check.Test) {
 	}
 }
 
+// PodToLocalLoadBalancerETPLocal sends an HTTP request from the client pod to
+// the LoadBalancer VIP with externalTrafficPolicy=Local, using the backend's
+// node-local endpoint.
+func PodToLocalLoadBalancerETPLocal() check.Scenario {
+	return &podToLocalLoadBalancerETPLocal{
+		ScenarioBase: check.NewScenarioBase(),
+	}
+}
+
+type podToLocalLoadBalancerETPLocal struct {
+	check.ScenarioBase
+}
+
+func (s *podToLocalLoadBalancerETPLocal) Name() string {
+	return "pod-to-local-loadbalancer-etp-local"
+}
+
+func (s *podToLocalLoadBalancerETPLocal) Run(ctx context.Context, t *check.Test) {
+	ct := t.Context()
+	svc := ct.EchoLocalLoadBalancerService()
+
+	var backendNode string
+	for _, pod := range ct.EchoPods() {
+		if pod.HasLabel("name", "echo-same-node") {
+			backendNode = pod.NodeName()
+			break
+		}
+	}
+
+	validateFlows := ct.Features[features.KPR].Enabled
+	i := 0
+	for _, pod := range ct.ClientPods() {
+		if pod.NodeName() != backendNode {
+			continue
+		}
+
+		for _, ingress := range svc.Service.Status.LoadBalancer.Ingress {
+			if net.ParseIP(ingress.IP) == nil {
+				continue
+			}
+			ipFamily := features.GetIPFamily(ingress.IP)
+			if (ipFamily == features.IPFamilyV4 && !ct.Features[features.IPv4].Enabled) ||
+				(ipFamily == features.IPFamilyV6 && !ct.Features[features.IPv6].Enabled) {
+				continue
+			}
+
+			endpoint := check.HTTPEndpoint("loadbalancer-vip", fmt.Sprintf("%s://%s%s",
+				svc.Scheme(), net.JoinHostPort(ingress.IP, strconv.FormatUint(uint64(svc.Port()), 10)), svc.Path()))
+			t.NewAction(s, fmt.Sprintf("curl-%s-%d", ipFamily, i), &pod, svc, ipFamily).Run(func(a *check.Action) {
+				a.ExecInPod(ctx, a.CurlCommand(endpoint))
+
+				if validateFlows {
+					a.ValidateFlows(ctx, pod, a.GetEgressRequirements(check.FlowParameters{
+						AltDstPort: svc.Port(),
+					}))
+				}
+			})
+			i++
+		}
+	}
+}
+
 func curlNodePort(ctx context.Context, s check.Scenario, t *check.Test,
 	name string, pod *check.Pod, svc check.Service, node *slimcorev1.Node,
 	validateFlows bool, secondaryNetwork bool) {
