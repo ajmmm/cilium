@@ -220,6 +220,49 @@ func (s *podToLocalNodePort) Run(ctx context.Context, t *check.Test) {
 	}
 }
 
+// PodToLocalNodePortETPLocal sends an HTTP request from the client pod to a
+// NodePort Service with externalTrafficPolicy=Local on the node hosting the
+// Service's local echo backend.
+func PodToLocalNodePortETPLocal() check.Scenario {
+	return &podToLocalNodePortETPLocal{
+		ScenarioBase: check.NewScenarioBase(),
+	}
+}
+
+type podToLocalNodePortETPLocal struct {
+	check.ScenarioBase
+}
+
+func (s *podToLocalNodePortETPLocal) Name() string {
+	return "pod-to-local-nodeport-etp-local"
+}
+
+func (s *podToLocalNodePortETPLocal) Run(ctx context.Context, t *check.Test) {
+	ct := t.Context()
+	svc := ct.EchoLocalNodePortService()
+
+	var backendNode string
+	for _, pod := range ct.EchoPods() {
+		if pod.HasLabel("name", "echo-same-node") {
+			backendNode = pod.NodeName()
+			break
+		}
+	}
+
+	node := ct.Nodes()[backendNode]
+
+	validateFlows := ct.Features[features.KPR].Enabled
+	i := 0
+	for _, pod := range ct.ClientPods() {
+		if pod.NodeName() != backendNode {
+			continue
+		}
+
+		curlNodePort(ctx, s, t, fmt.Sprintf("curl-%d", i), &pod, svc, node, validateFlows, false)
+		i++
+	}
+}
+
 func curlNodePort(ctx context.Context, s check.Scenario, t *check.Test,
 	name string, pod *check.Pod, svc check.Service, node *slimcorev1.Node,
 	validateFlows bool, secondaryNetwork bool) {

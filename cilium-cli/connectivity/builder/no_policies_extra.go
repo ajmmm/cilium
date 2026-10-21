@@ -16,5 +16,6 @@ func (t noPoliciesExtra) build(ct *check.ConnectivityTest, _ map[string]string) 
 		WithScenarios(
 			tests.PodToRemoteNodePort(),
 			tests.PodToLocalNodePort(),
+			tests.PodToLocalNodePortETPLocal(),
 		)
 }
