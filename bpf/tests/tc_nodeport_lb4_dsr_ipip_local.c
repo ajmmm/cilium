@@ -82,7 +82,7 @@ mock_ctx_redirect(const struct __ctx_buff *ctx __maybe_unused,
 
 /* The DNAT'ed packet is delivered to the local backend Pod via
  * ipv4_local_delivery() -> local_delivery(). With BPF host routing on a
- * from_netdev (from_host=false) packet, should_redirect_peer() is true, so
+ * physical-netdev ingress packet, peer redirection is enabled, so
  * local_delivery() jumps to the destination Pod's policy program through
  * tail_call_policy() and that program performs the redirect_ep(). The unit-test
  * harness loads no per-endpoint policy program, so - mirroring
@@ -121,9 +121,8 @@ mock_tail_call_dynamic(struct __ctx_buff *ctx __maybe_unused,
 
 #define tail_call_dynamic mock_tail_call_dynamic
 
-/* should_redirect_peer() keys off skb->ingress_ifindex, which BPF_PROG_TEST_RUN
- * leaves at 0. On netkit that runtime arm is what selects redirect_peer(), so
- * mock it to the physical netdev index to mirror a real phys-netdev TC ingress.
+/* BPF_PROG_TEST_RUN leaves skb->ingress_ifindex at 0. Supply the physical
+ * netdev index so get_delivery_action() selects peer redirection on netkit.
  */
 static volatile __u32 mock_ingress_ifindex = DEFAULT_IFACE;
 #define ctx_get_ingress_ifindex mock_ctx_get_ingress_ifindex
@@ -135,20 +134,18 @@ mock_ctx_get_ingress_ifindex(const struct __sk_buff *ctx __maybe_unused)
 
 #include "lib/bpf_host.h"
 
-/* Stands in for bpf_lxc's tail_ipv4_policy program: reads the calling-convention
- * meta that local_delivery_fill_meta() set and performs the redirect_ep() with
- * should_redirect_peer()'s verdict, exactly as the real policy program would.
- * We entered via cil_from_netdev, so from_host is false.
+/* Stand in for bpf_lxc's tail_ipv4_policy program, consuming the delivery
+ * flags set by local_delivery_fill_meta().
  */
 int mock_tail_policy(struct __ctx_buff *ctx)
 {
-	bool do_redirect = ctx_load_meta(ctx, CB_DELIVERY_FLAGS) & CB_DELIVERY_FLAGS_REDIRECT;
-	bool from_host = ctx_load_and_clear_meta(ctx, CB_FROM_HOST);
+	__u32 delivery_flags = ctx_load_meta(ctx, CB_DELIVERY_FLAGS);
+	bool do_redirect = delivery_flags & CB_DELIVERY_FLAGS_REDIRECT;
+	bool use_redirect_peer = delivery_flags & CB_DELIVERY_FLAGS_USE_REDIRECT_PEER;
 
 	if (do_redirect)
 		return redirect_ep(ctx, CONFIG(interface_ifindex),
-				   should_redirect_peer(ctx, from_host),
-				   false);
+				   use_redirect_peer, false);
 	return CTX_ACT_DROP;
 }
 

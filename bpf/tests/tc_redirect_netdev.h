@@ -97,7 +97,7 @@ mock_tail_call_dynamic(struct __ctx_buff *ctx __maybe_unused,
 #define ctx_redirect mock_ctx_redirect
 #define ctx_redirect_peer mock_ctx_redirect_peer
 
-/* Override ctx_get_ingress_ifindex so should_redirect_peer() sees a value
+/* Override ctx_get_ingress_ifindex so get_delivery_action() sees a value
  * that mirrors the real datapath instead of BPF_PROG_TEST_RUN's default
  * (which leaves __sk_buff->ingress_ifindex at 0 for synthetic skbs).
  * Each scenario sets this before dispatching:
@@ -122,7 +122,7 @@ mock_ctx_get_ingress_ifindex(const struct __sk_buff *ctx __maybe_unused)
 /* Mocked out policy function so we can test redirect_ep(). This stands in for
  * bpf_lxc's tail_ipv{4,6}_policy program: it reads the calling convention
  * meta that local_delivery_fill_meta() set and calls redirect_ep() with the
- * value of should_redirect_peer() as the real program would. Unlike the
+ * stored peer-redirection flag as the real program would. Unlike the
  * cil_from_host test we don't gate on from_host=true: this path runs with
  * from_host=false (we entered via cil_from_netdev).
  */
@@ -186,8 +186,7 @@ const __u8 tc_redirect_netdev_ipv4_post[] = {
  * Packet enters via cil_from_netdev (TC ingress on the physical netdev),
  * not via cil_from_host. With from_host=false and ingress_ifindex > 0 the
  * datapath must reach the target Pod via ctx_redirect_peer() on both veth
- * and netkit - that's the behavior the runtime arm of should_redirect_peer
- * encodes (and what 210b5866e0 inadvertently broke for netkit).
+ * and netkit (which 210b5866e0 inadvertently broke for netkit).
  */
 PKTGEN(PROG_TYPE, "tc_redirect_netdev_ipv4")
 int tc_redirect_netdev_ipv4_pktgen(struct __ctx_buff *ctx)
@@ -266,7 +265,7 @@ int tc_redirect_netdev_ipv4_check(__maybe_unused const struct __ctx_buff *ctx)
  * In production this enters via bpf_lxc's cil_from_container (a different
  * compilation unit we can't link in here), but the discriminator the fix
  * cares about is the value of ctx_get_ingress_ifindex() in
- * should_redirect_peer(). Reuse cil_from_netdev as the vehicle and force
+ * get_delivery_action(). Reuse cil_from_netdev as the vehicle and force
  * the mock to return 0, which is what netkit's ns crossing scrubs the
  * field to on TC egress. On netkit this must NOT take redirect_peer(); on
  * veth the loadtime !enable_netkit arm still folds true so redirect_peer()
@@ -306,16 +305,13 @@ CHECK(PROG_TYPE, "tc_redirect_pod_egress_ipv4")
 int tc_redirect_pod_egress_ipv4_check(__maybe_unused const struct __ctx_buff *ctx)
 {
 #ifdef __CONFIG_ENABLE_NETKIT
-	/* netkit + ingress_ifindex==0: predicate is false on both arms,
-	 * so should_redirect_peer() returns false and the tail-called
-	 * mock_tail_policy uses ctx_redirect() (which on netkit lets the
-	 * primary's xmit handle the ns switch).
+	/* Netkit pod transmission requires policy before a plain redirect,
+	 * which lets the primary's xmit handle the namespace switch.
 	 */
 	const unsigned int expected[RECORD__MAX] = {1, 1, 0};
 #else
-	/* veth + ingress_ifindex==0: !CONFIG(enable_netkit) folds true at
-	 * load time so should_redirect_peer() still returns true. veth Pod
-	 * -> Pod uses redirect_peer() and matches tc_redirect_lxc_veth_*.
+	/* Veth pod transmission uses peer redirection, matching the
+	 * tc_redirect_lxc_veth_* expectations.
 	 */
 	const unsigned int expected[RECORD__MAX] = {1, 0, 1};
 #endif

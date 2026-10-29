@@ -56,35 +56,65 @@ tail_call_policy(struct __ctx_buff *ctx, __u16 endpoint_id)
 	return DROP_EP_NOT_READY;
 }
 
-static __always_inline bool
-should_redirect_peer(struct __ctx_buff *ctx, bool from_host)
+enum delivery_action {
+	DELIVER_POLICY,
+	DELIVER_STACK,
+	DELIVER_ENDPOINT,
+};
+
+static __always_inline enum delivery_action
+get_delivery_action(struct __ctx_buff *ctx, bool from_host,
+		    bool from_tunnel __maybe_unused,
+		    bool *use_redirect_peer)
 {
-	/* We should only do a redirect_peer() if BPF Host Routing is enabled,
-	 * otherwise we do a standard redirect().
-	 *
-	 * Also, if we're from_host, we cannot do an ingress -> ingress switch
-	 * via redirect_peer() and instead need an ingress -> egress netns
-	 * traversal (or vice versa.)
-	 *
-	 * For phys dev -> Pod:
-	 * - on veth, we go ingress -> ingress so we can use redirect_peer()
-	 * - on netkit, we go ingress -> ingress so we can use it too
-	 *   (ingress ifindex is > 0 on ingress, and 0 on egress)
-	 *
-	 * Finally, in case of Pod -> Pod:
-	 * - on veth, we're on TC ingress and need a redirect_peer() to get
-	 *   to the target namespace. Same ingress -> ingress switch.
-	 * - on netkit, we're on TC egress and need a regular redirect() to
-	 *   the peer device's ifindex. netkit takes care of the namespace
-	 *   switch for us. Here's it's egress -> ingress, therefore we must
-	 *   use redirect() instead of redirect_peer().
-	 *
-	 * Note: both redirect() and redirect_peer() only traverse the CPU
-	 * backlog queue once.
+	/* Default to ordinary redirection after policy enforcement. */
+	*use_redirect_peer = false;
+
+	/* Peer redirection requires BPF host routing and an ingress hook.
+	 * Host delivery and L7-LB reinjection execute on egress hooks.
 	 */
-	return CONFIG(enable_bpf_host_routing) &&
-	       !from_host &&
-	       (!CONFIG(enable_netkit) || ctx_get_ingress_ifindex(ctx) > 0);
+	if (CONFIG(enable_bpf_host_routing) && !from_host) {
+		/* Netkit transmission clears ingress_ifindex and cannot use
+		 * redirect_peer(0). Enforce policy before ordinary redirection,
+		 * while the host proxy is still reachable.
+		 */
+		if (CONFIG(enable_netkit) &&
+		    ctx_get_ingress_ifindex(ctx) == 0)
+			return DELIVER_POLICY;
+
+		/* Tell the policy program to use peer redirection for delivery. */
+		*use_redirect_peer = true;
+
+		/* Peer redirection bypasses cil_to_container(), so destination
+		 * ingress policy must run through the tailcall first.
+		 */
+		return DELIVER_POLICY;
+	}
+
+	/* Without endpoint routes, enforce destination ingress policy
+	 * through the tailcall before delivery.
+	 */
+	if (!CONFIG(enable_endpoint_routes))
+		return DELIVER_POLICY;
+
+	/* Ordinary Netkit redirection also needs policy before the namespace
+	 * switch, so L7 processing can still reach the host proxy.
+	 */
+	if (CONFIG(enable_netkit) && ctx_get_ingress_ifindex(ctx) == 0)
+		return DELIVER_POLICY;
+
+#ifndef ENABLE_NODEPORT
+	/* Tunnel traffic using kube-proxy must traverse the stack for
+	 * conntrack and reverse DNAT.
+	 */
+	if (from_tunnel)
+		return DELIVER_STACK;
+#endif
+
+	/* Endpoint routes allow ordinary redirection to defer destination
+	 * ingress policy to cil_to_container().
+	 */
+	return DELIVER_ENDPOINT;
 }
 
 static __always_inline int redirect_ep(struct __ctx_buff *ctx,
@@ -92,6 +122,7 @@ static __always_inline int redirect_ep(struct __ctx_buff *ctx,
 				       bool use_redirect_peer,
 				       bool from_tunnel)
 {
+	/* Plain redirection traverses cil_to_container() when it is attached. */
 	if (!use_redirect_peer)
 		return (int)ctx_redirect(ctx, ifindex, 0);
 
@@ -101,6 +132,7 @@ static __always_inline int redirect_ep(struct __ctx_buff *ctx,
 	if (from_tunnel)
 		ctx_change_type(ctx, PACKET_HOST);
 
+	/* Peer ingress bypasses the endpoint's transmit path and to-container hook. */
 	return ctx_redirect_peer(ctx, ifindex, 0);
 }
 
@@ -141,6 +173,7 @@ local_delivery(struct __ctx_buff *ctx, __u32 seclabel, __u32 magic,
 	       const struct endpoint_info *ep, __u8 direction, bool from_host,
 	       bool from_tunnel, __u32 cluster_id)
 {
+	enum delivery_action action;
 	bool use_redirect_peer;
 
 #if defined(IS_BPF_LXC) || defined(IS_BPF_HOST)
@@ -163,43 +196,25 @@ local_delivery(struct __ctx_buff *ctx, __u32 seclabel, __u32 magic,
 			return ret;
 	}
 
-	/* When BPF host routing is enabled we need to check policies at source, as in
-	 * this case the skb is delivered directly to pod's namespace and the ingress
-	 * policy (the cil_to_container BPF program) is bypassed.
-	 */
-	use_redirect_peer = should_redirect_peer(ctx, from_host);
-	if (CONFIG(enable_endpoint_routes) && !use_redirect_peer &&
-	    /* We need to enforce policies at the source in case of netkit
-	     * devices because we can't redirect to proxy from bpf_lxc. That
-	     * needs a fix upstream. This must stay in sync with the predicate
-	     * in should_redirect_peer(): whenever we fall through to the policy
-	     * tail-call below and then do a plain redirect() into the lxc device
-	     * (should_redirect_peer() == false), endpoint routes would enforce
-	     * ingress policy a second time. On netkit that case is phys/host
-	     * ingress (ingress_ifindex > 0); there we must enforce at the source
-	     * here instead.
-	     */
-	    (!CONFIG(enable_netkit) || ctx_get_ingress_ifindex(ctx) > 0)) {
+	action = get_delivery_action(ctx, from_host, from_tunnel, &use_redirect_peer);
+	switch (action) {
+	case DELIVER_STACK:
 		set_identity_mark(ctx, seclabel, magic);
-
-# if !defined(ENABLE_NODEPORT)
-		/* In tunneling mode, we execute this code to send the packet from
-		 * cilium_vxlan to lxc*. If we're using kube-proxy, we don't want to use
-		 * redirect() because that would bypass conntrack and the reverse DNAT.
-		 * Thus, we send packets to the stack, but since they have the wrong
-		 * Ethernet addresses, we need to mark them as PACKET_HOST or the kernel
-		 * will drop them.
-		 */
-		if (from_tunnel) {
-			ctx_change_type(ctx, PACKET_HOST);
-			return CTX_ACT_OK;
-		}
-# endif /* !ENABLE_NODEPORT */
-
+		/* The stack requires PACKET_HOST despite the endpoint MAC addresses. */
+		ctx_change_type(ctx, PACKET_HOST);
+		return CTX_ACT_OK;
+	case DELIVER_ENDPOINT:
+		/* Defer ingress policy to cil_to_container(). */
+		set_identity_mark(ctx, seclabel, magic);
 		return redirect_ep(ctx, ep->ifindex, false, from_tunnel);
+	default:
+		break;
 	}
 
-	/* Jumps to destination pod's BPF program to enforce ingress policies. */
+	/* Enforce destination ingress policy here when endpoint routes are off,
+	 * when peer redirection bypasses cil_to_container(), or when Netkit needs
+	 * proxy access before the namespace switch.
+	 */
 	local_delivery_fill_meta(ctx, seclabel, true, use_redirect_peer,
 				 from_host, from_tunnel, cluster_id);
 	return tail_call_policy(ctx, ep->lxc_id);

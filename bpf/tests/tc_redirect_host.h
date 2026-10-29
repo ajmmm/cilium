@@ -93,15 +93,13 @@ mock_tail_call_dynamic(struct __ctx_buff *ctx __maybe_unused,
 #define ctx_redirect mock_ctx_redirect
 #define ctx_redirect_peer mock_ctx_redirect_peer
 
-/* Override ctx_get_ingress_ifindex so should_redirect_peer() and the
- * enforce-at-source guard in local_delivery() see a realistic value.
- * cil_from_host runs on TC ingress of a host device, so the kernel populates
- * skb->ingress_ifindex (> 0). BPF_PROG_TEST_RUN leaves it at 0 on synthetic
- * skbs, which would misrepresent the from_host path and, on netkit, hide the
- * double policy-enforcement regression this test guards against: with
- * ingress_ifindex > 0 the enforce-at-source block must be taken on netkit too
- * (the !enable_netkit || ingress_ifindex > 0 arm), so we do a single plain
- * redirect() and skip the policy tail-call instead of doing both.
+/* Supply a realistic ingress_ifindex for get_delivery_action().
+ * cil_from_host runs on TC egress of cilium_host; forwarded packets can retain
+ * skb->ingress_ifindex (> 0) from earlier ingress. BPF_PROG_TEST_RUN leaves it
+ * at 0 on synthetic skbs, which would misrepresent this path and, on netkit,
+ * hide the double policy-enforcement regression this test guards against:
+ * with endpoint routes and ingress_ifindex > 0, delivery must use a single
+ * plain redirect and defer policy to cil_to_container() on netkit too.
  */
 #define ctx_get_ingress_ifindex mock_ctx_get_ingress_ifindex
 static __always_inline __maybe_unused __u32
