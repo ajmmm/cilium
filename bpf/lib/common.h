@@ -209,6 +209,7 @@ enum metric_dir {
 #define MARK_MAGIC_SNAT_DONE		0x0300
 #define MARK_MAGIC_OVERLAY		0x0400 /* source identity */
 #define MARK_MAGIC_EGW_DONE		0x0500 /* source identity */
+#define MARK_MAGIC_IDENTITY_INGRESS_DONE	0x0600 /* source identity, endpoint ingress completed */
 
 #define MARK_MAGIC_KEY_MASK		0xFF00
 
@@ -241,6 +242,7 @@ enum metric_dir {
 #define CB_DELIVERY_FLAGS_USE_REDIRECT_PEER	(1 << 3)
 #define CB_DELIVERY_FLAGS_FROM_INGRESS_PROXY	(1 << 4)
 #define CB_DELIVERY_FLAGS_FROM_EGRESS_PROXY	(1 << 5)
+#define CB_DELIVERY_FLAGS_INGRESS_POLICY_ENFORCED	(1 << 6)
 
 #define CB_NAT_FLAGS_REVDNAT_ONLY	(1 << 0)
 

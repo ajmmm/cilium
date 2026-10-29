@@ -304,7 +304,7 @@ static __always_inline __u32 inherit_identity_from_host(struct __ctx_buff *ctx, 
 	} else if (magic == MARK_MAGIC_PROXY_EGRESS) {
 		*identity = get_identity(ctx);
 		ctx->tc_index |= TC_INDEX_F_FROM_EGRESS_PROXY;
-	} else if (magic == MARK_MAGIC_IDENTITY) {
+	} else if (magic == MARK_MAGIC_IDENTITY || magic == MARK_MAGIC_IDENTITY_INGRESS_DONE) {
 		*identity = get_identity(ctx);
 	} else if (magic == MARK_MAGIC_HOST) {
 		*identity = HOST_ID;

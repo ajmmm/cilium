@@ -1901,6 +1901,7 @@ int tail_ipv6_policy(struct __ctx_buff *ctx)
 	struct ipv6_ct_tuple tuple = {};
 	__u32 delivery_flags = ctx_load_meta(ctx, CB_DELIVERY_FLAGS);
 	bool do_redirect = delivery_flags & CB_DELIVERY_FLAGS_REDIRECT;
+	bool ingress_done = delivery_flags & CB_DELIVERY_FLAGS_INGRESS_POLICY_ENFORCED;
 	__u32 src_label = ctx_load_and_clear_meta(ctx, CB_SRC_LABEL);
 	bool from_host = false, from_tunnel = false, use_redirect_peer = false;
 	void *data, *data_end;
@@ -1949,9 +1950,13 @@ int tail_ipv6_policy(struct __ctx_buff *ctx)
 			break;
 		}
 
-		if (do_redirect)
+		if (do_redirect) {
+			if (ingress_done)
+				set_identity_mark(ctx, src_label, MARK_MAGIC_IDENTITY_INGRESS_DONE);
+
 			ret = redirect_ep(ctx, CONFIG(interface_ifindex),
 					  use_redirect_peer, from_tunnel);
+		}
 		break;
 	default:
 		break;
@@ -2202,6 +2207,7 @@ int tail_ipv4_policy(struct __ctx_buff *ctx)
 	struct ipv4_ct_tuple tuple = {};
 	__u32 delivery_flags = ctx_load_meta(ctx, CB_DELIVERY_FLAGS);
 	bool do_redirect = delivery_flags & CB_DELIVERY_FLAGS_REDIRECT;
+	bool ingress_done = delivery_flags & CB_DELIVERY_FLAGS_INGRESS_POLICY_ENFORCED;
 	__u32 src_label = ctx_load_and_clear_meta(ctx, CB_SRC_LABEL);
 	bool from_host = false, from_tunnel = false, use_redirect_peer = false;
 	void *data, *data_end;
@@ -2259,9 +2265,13 @@ int tail_ipv4_policy(struct __ctx_buff *ctx)
 			break;
 		}
 
-		if (do_redirect)
+		if (do_redirect) {
+			if (ingress_done)
+				set_identity_mark(ctx, src_label, MARK_MAGIC_IDENTITY_INGRESS_DONE);
+
 			ret = redirect_ep(ctx, CONFIG(interface_ifindex),
 					  use_redirect_peer, from_tunnel);
+		}
 		break;
 	default:
 		break;
@@ -2509,6 +2519,8 @@ int cil_to_container(struct __ctx_buff *ctx)
 	}
 
 	magic = inherit_identity_from_host(ctx, &identity);
+	if (magic == MARK_MAGIC_IDENTITY_INGRESS_DONE)
+		return CTX_ACT_OK;
 	if (magic == MARK_MAGIC_PROXY_INGRESS || magic == MARK_MAGIC_PROXY_EGRESS)
 		trace = TRACE_FROM_PROXY;
 

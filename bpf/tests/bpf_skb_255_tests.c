@@ -68,3 +68,21 @@ int check_ctx_get_cluster_id_mark(struct __ctx_buff *ctx)
 
 	test_finish();
 }
+
+CHECK(PROG_TYPE, "inherit_identity_ingress_done")
+int check_inherit_identity_ingress_done(struct __ctx_buff *ctx)
+{
+	__u32 identity = 0;
+	__u32 magic;
+
+	test_init();
+
+	set_identity_mark(ctx, IDENTITY, MARK_MAGIC_IDENTITY_INGRESS_DONE);
+	magic = inherit_identity_from_host(ctx, &identity);
+
+	assert(magic == MARK_MAGIC_IDENTITY_INGRESS_DONE);
+	assert(identity == IDENTITY);
+	assert(ctx->mark == 0);
+
+	test_finish();
+}

@@ -110,10 +110,13 @@ static __always_inline int redirect_ep(struct __ctx_buff *ctx,
  * As the callers (from-overlay, from-netdev, ...) are re-generated independently
  * from the policy tail-call of the individual endpoints, any change to this code
  * needs to be introduced with compatibility in mind.
+ * The ingress-completion flag is opt-in: callers must be regenerated to request
+ * it, and older policy programs ignore it.
  */
 static __always_inline void
 local_delivery_fill_meta(struct __ctx_buff *ctx, __u32 seclabel,
 			 bool delivery_redirect, bool use_redirect_peer,
+			 bool ingress_enforced,
 			 bool from_host, bool from_tunnel, __u32 cluster_id)
 {
 	__u32 delivery_flags = 0;
@@ -130,6 +133,8 @@ local_delivery_fill_meta(struct __ctx_buff *ctx, __u32 seclabel,
 		delivery_flags |= CB_DELIVERY_FLAGS_FROM_INGRESS_PROXY;
 	if (tc_index_from_egress_proxy(ctx))
 		delivery_flags |= CB_DELIVERY_FLAGS_FROM_EGRESS_PROXY;
+	if (ingress_enforced)
+		delivery_flags |= CB_DELIVERY_FLAGS_INGRESS_POLICY_ENFORCED;
 
 	ctx_store_meta(ctx, CB_SRC_LABEL, seclabel);
 	ctx_store_meta(ctx, CB_DELIVERY_FLAGS, delivery_flags);
@@ -201,6 +206,7 @@ local_delivery(struct __ctx_buff *ctx, __u32 seclabel, __u32 magic,
 
 	/* Jumps to destination pod's BPF program to enforce ingress policies. */
 	local_delivery_fill_meta(ctx, seclabel, true, use_redirect_peer,
+				 true,
 				 from_host, from_tunnel, cluster_id);
 	return tail_call_policy(ctx, ep->lxc_id);
 }

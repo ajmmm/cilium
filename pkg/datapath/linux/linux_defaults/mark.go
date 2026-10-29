@@ -62,6 +62,11 @@ const (
 	// to identify cilium-managed overlay traffic.
 	MagicMarkOverlay int = 0x0400
 
+	// MagicMarkIdentityIngressDone carries the source identity after destination
+	// ingress processing has completed, before redirecting to a netkit endpoint.
+	// This must match MARK_MAGIC_IDENTITY_INGRESS_DONE in bpf/lib/common.h.
+	MagicMarkIdentityIngressDone int = 0x0600
+
 	// MagicMarkProxyEgressEPID determines that the traffic is sourced from
 	// the proxy which is capturing traffic before it is subject to egress
 	// policy enforcement that must be done after the proxy. The identity
