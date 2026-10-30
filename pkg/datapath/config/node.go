@@ -73,6 +73,7 @@ func NodeConfig(lnc *Config) Node {
 
 	node.SupportsFIBLookupSkipNeigh = probes.HaveFibLookupSkipNeigh() == nil
 	node.SupportsFIBLookupSrc = probes.HaveFibLookupSrc() == nil
+	node.SupportsRedirectPeerEgress = probes.HaveRedirectPeerEgress() == nil
 
 	// Terminate inbound IPIP in BPF on netdev ingress for any outer dst that
 	// resolves to a local endpoint - pod IP (DSR-IPIP) or host IP (hostNetwork

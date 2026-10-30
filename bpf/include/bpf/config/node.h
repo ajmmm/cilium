@@ -43,6 +43,9 @@ NODE_CONFIG(bool, supports_fib_lookup_skip_neigh,
 NODE_CONFIG(bool, supports_fib_lookup_src,
 	    "Whether or not BPF_FIB_LOOKUP_SRC is supported.")
 
+NODE_CONFIG(bool, supports_redirect_peer_egress,
+	    "Whether or not bpf_redirect_peer() supports BPF_F_EGRESS.")
+
 NODE_CONFIG(bool, enable_nodeport_source_lookup,
 	    "Enable dynamic source IP resolution for SNAT via linux's routing table.")
 

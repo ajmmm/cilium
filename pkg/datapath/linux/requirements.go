@@ -5,6 +5,7 @@ package linux
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -133,6 +134,13 @@ func CheckRequirements(log *slog.Logger) error {
 
 		if probes.HaveProgramHelper(log, ebpf.SchedCLS, asm.FnRedirectPeer) != nil {
 			return errors.New("Require support for bpf_redirect_peer() (Linux 5.10.0 or newer)")
+		}
+
+		if err := probes.HaveRedirectPeerEgress(); err != nil {
+			if !errors.Is(err, probes.ErrNotSupported) {
+				return fmt.Errorf("unable to determine if bpf_redirect_peer() supports BPF_F_EGRESS: %w", err)
+			}
+			log.Info("bpf_redirect_peer() does not support BPF_F_EGRESS; it will not be used")
 		}
 
 		if err := probes.HaveFibLookupSkipNeigh(); err != nil {

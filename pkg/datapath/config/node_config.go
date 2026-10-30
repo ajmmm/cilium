@@ -136,6 +136,8 @@ type Node struct {
 	SupportsFIBLookupSkipNeigh bool `config:"supports_fib_lookup_skip_neigh"`
 	// Whether or not BPF_FIB_LOOKUP_SRC is supported.
 	SupportsFIBLookupSrc bool `config:"supports_fib_lookup_src"`
+	// Whether or not bpf_redirect_peer() supports BPF_F_EGRESS.
+	SupportsRedirectPeerEgress bool `config:"supports_redirect_peer_egress"`
 	// Length of payload to capture when tracing native packets.
 	TracePayloadLen uint32 `config:"trace_payload_len"`
 	// Length of payload to capture when tracing overlay packets.
@@ -163,5 +165,5 @@ func NewNode() *Node {
 		cast[types.V6Addr]([]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}),
 		cast[types.SRv6Config]([]byte{0x0, 0x0}), cast[types.V4Addr]([]byte{0x0, 0x0, 0x0, 0x0}),
 		cast[types.V6Addr]([]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}),
-		false, false, 0x0, 0x0, 0x0}
+		false, false, false, 0x0, 0x0, 0x0}
 }
