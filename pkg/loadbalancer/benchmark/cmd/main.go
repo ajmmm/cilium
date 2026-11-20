@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
+// This file was not reviewed by a human before submission
 
 package main
 
@@ -17,10 +18,10 @@ import (
 // Test size is the number of services. Each service has a single EndpointSlice.
 var testSize = flag.Int("services", 50000, "number of services to create")
 var endpointsPerService = flag.Int("endpoints-per-service", 1, "number of EndpointSlice endpoints per service")
-var lrpCount = flag.Int("lrp-count", 0, "number of ServiceMatcher LRPs to create, each targeting one generated service")
-var lrpBackends = flag.Int("lrp-backends", 1, "number of matching local backend pods per ServiceMatcher LRP")
-var lrpUnmatchedPods = flag.Int("lrp-unmatched-pods", 0, "number of nonmatching local pods per LRP namespace")
-var lrpSharedNamespace = flag.Bool("lrp-shared-namespace", false, "place all ServiceMatcher LRP benchmark objects in one namespace")
+var svcMatcherCount = flag.Int("svc-matcher-count", 0, "number of ServiceMatcher LRPs to create, each targeting one generated service")
+var svcMatcherBackends = flag.Int("svc-matcher-backends", 1, "number of matching local backend pods per ServiceMatcher LRP")
+var svcMatcherUnmatchedPods = flag.Int("svc-matcher-unmatched-pods", 0, "number of nonmatching local pods per ServiceMatcher LRP namespace")
+var svcMatcherSharedNamespace = flag.Bool("svc-matcher-shared-namespace", false, "place all ServiceMatcher LRP benchmark objects in one namespace")
 var iterations = flag.Int("iterations", 10, "number of benchmark runs to perform")
 
 // Small workloads may not fill the reflector event buffer. In that case, the
@@ -55,10 +56,10 @@ func main() {
 		Services:                         *testSize,
 		EndpointsPerService:              *endpointsPerService,
 		Iterations:                       *iterations,
-		ServiceMatcherLRPs:               *lrpCount,
-		LRPBackends:                      *lrpBackends,
-		UnmatchedLRPNamespacePods:        *lrpUnmatchedPods,
-		ServiceMatcherLRPSharedNamespace: *lrpSharedNamespace,
+		ServiceMatcherLRPs:               *svcMatcherCount,
+		LRPBackends:                      *svcMatcherBackends,
+		UnmatchedLRPNamespacePods:        *svcMatcherUnmatchedPods,
+		ServiceMatcherLRPSharedNamespace: *svcMatcherSharedNamespace,
 		ReflectorWaitTime:                *reflectorWaitTime,
 		LogLevel:                         level,
 		Validate:                         *validate,
