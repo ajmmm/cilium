@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
+// This file was not reviewed by a human before submission
 
 package benchmark
 
@@ -281,6 +282,42 @@ func fastCheckTables(db *statedb.DB, writer *writer.Writer, expectedFrontends, e
 		return false, rev
 	}
 	return true, rev
+}
+
+func fastCheckServiceDeletion(db *statedb.DB, writer *writer.Writer, objects *benchmarkObjectSet) bool {
+	txn := db.ReadTxn()
+	if writer.Frontends().NumObjects(txn) != 0 {
+		return false
+	}
+	if writer.Services().NumObjects(txn) != len(objects.lrpTargets) {
+		return false
+	}
+	for svc := range writer.Services().All(txn) {
+		if _, found := objects.lrpTargets[svc.Name]; !found {
+			return false
+		}
+	}
+
+	expectedBackendCount := 0
+	for _, count := range objects.lrpBackendCounts {
+		expectedBackendCount += count
+	}
+	if writer.Backends().NumObjects(txn) != expectedBackendCount {
+		return false
+	}
+	backendCounts := make(map[loadbalancer.ServiceName]int, len(objects.lrpBackendCounts))
+	for backend := range writer.Backends().All(txn) {
+		if _, found := objects.lrpBackendCounts[backend.ServiceName]; !found {
+			return false
+		}
+		backendCounts[backend.ServiceName]++
+	}
+	for service, expectedCount := range objects.lrpBackendCounts {
+		if backendCounts[service] != expectedCount {
+			return false
+		}
+	}
+	return true
 }
 
 func fastCheckEmptyTablesAndState(

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
+// This file was not reviewed by a human before submission
 
 package benchmark
 
@@ -85,7 +86,9 @@ func RunBenchmark(cfg Config) {
 	objects := generateBenchmarkObjects(log, cfg)
 
 	var maps lbmaps.LBMaps
+	lbMapMode := "fake"
 	if testutils.IsPrivileged() {
+		lbMapMode = "BPF-backed"
 		bpfMaps := &lbmaps.BPFLBMaps{
 			Log:    log,
 			Pinned: false,
@@ -119,6 +122,7 @@ func RunBenchmark(cfg Config) {
 	} else {
 		maps = lbmaps.NewFakeLBMaps()
 	}
+	fmt.Printf("LB map mode: %s\n", lbMapMode)
 
 	services := make(chan resource.Event[*slim_corev1.Service], 1000)
 	endpoints := make(chan resource.Event[*k8s.Endpoints], 1000)
@@ -216,9 +220,9 @@ func RunBenchmark(cfg Config) {
 		runtime.GC()
 		runtime.ReadMemStats(&memory.after)
 
-		startDelete := time.Now()
+		serviceDeleteStart := time.Now()
 
-		fmt.Print("delete ")
+		fmt.Print("delete services ")
 		//
 		// Feed in deletions of all objects.
 		//
@@ -229,37 +233,55 @@ func RunBenchmark(cfg Config) {
 		for _, slice := range objects.endpointSlices {
 			endpoints <- deleteEvent(slice)
 		}
-		if cfg.ServiceMatcherLRPs > 0 {
+		fmt.Print("wait ")
+		serviceDeleted := false
+		for waitStart := time.Now(); time.Since(waitStart) < reconciliationTimeout; time.Sleep(10 * time.Millisecond) {
+			serviceDeleted = fastCheckServiceDeletion(db, writer, objects)
+			if serviceDeleted && (len(objects.lrps) > 0 || bo.LBMaps.IsEmpty()) {
+				break
+			}
+		}
+		if !serviceDeleted || (len(objects.lrps) == 0 && !bo.LBMaps.IsEmpty()) {
+			panic("Timeout waiting for service deletion.")
+		}
+		serviceDeleteDuration := time.Since(serviceDeleteStart)
+
+		cleanupDuration := time.Duration(0)
+		if len(objects.lrps) > 0 {
+			cleanupStart := time.Now()
+			fmt.Print("teardown policies and pods ")
 			if err := deleteLRPs(context.TODO(), client, objects.lrps); err != nil {
 				panic(err)
 			}
 			if err := deletePods(context.TODO(), client, objects.pods); err != nil {
 				panic(err)
 			}
-		}
 
-		fmt.Printf("wait ")
-		// Tables and maps should now be empty.
-		cleanedUp := false
-		for waitStart := time.Now(); time.Since(waitStart) < reconciliationTimeout; time.Sleep(10 * time.Millisecond) {
-			cleanedUp = fastCheckEmptyTablesAndState(db, writer, bo, podTable, lrpTable)
-			cleanedUp = cleanedUp && bo.LBMaps.IsEmpty()
-			if cleanedUp {
-				break
+			fmt.Printf("wait ")
+			// Tables and maps should now be empty.
+			cleanedUp := false
+			for waitStart := time.Now(); time.Since(waitStart) < reconciliationTimeout; time.Sleep(10 * time.Millisecond) {
+				cleanedUp = fastCheckEmptyTablesAndState(db, writer, bo, podTable, lrpTable)
+				cleanedUp = cleanedUp && bo.LBMaps.IsEmpty()
+				if cleanedUp {
+					break
+				}
 			}
-		}
-		if !cleanedUp {
-			dump := lbmaps.DumpLBMaps(bo.LBMaps, false, nil)
-			panic(fmt.Sprintf("Expected BPF maps to be empty, instead they contain %d entries:\n%s", len(dump), strings.Join(dump, "\n")))
+			if !cleanedUp {
+				dump := lbmaps.DumpLBMaps(bo.LBMaps, false, nil)
+				panic(fmt.Sprintf("Expected BPF maps to be empty, instead they contain %d entries:\n%s", len(dump), strings.Join(dump, "\n")))
+			}
+			cleanupDuration = time.Since(cleanupStart)
 		}
 		fmt.Println("ok.")
 
 		runs = append(
 			runs,
 			run{
-				insertDuration: insertDuration,
-				deleteDuration: time.Since(startDelete),
-				memstats:       &memory,
+				insertDuration:        insertDuration,
+				serviceDeleteDuration: serviceDeleteDuration,
+				cleanupDuration:       cleanupDuration,
+				memstats:              &memory,
 			},
 		)
 	}
@@ -273,8 +295,13 @@ func RunBenchmark(cfg Config) {
 	printTimeStats(mapFunc(runs, run.insert), cfg.Services)
 
 	fmt.Println()
-	fmt.Printf("Delete statistics from N=%d iterations:\n", cfg.Iterations)
-	printTimeStats(mapFunc(runs, run.delete), cfg.Services)
+	fmt.Printf("Service delete statistics from N=%d iterations:\n", cfg.Iterations)
+	printTimeStats(mapFunc(runs, run.serviceDelete), cfg.Services)
+	if cfg.ServiceMatcherLRPs > 0 {
+		fmt.Println()
+		fmt.Printf("LRP and pod cleanup statistics from N=%d iterations:\n", cfg.Iterations)
+		printDurationStats(mapFunc(runs, run.cleanup))
+	}
 }
 
 type memoryPair struct {
@@ -283,14 +310,16 @@ type memoryPair struct {
 }
 
 type run struct {
-	insertDuration time.Duration
-	deleteDuration time.Duration
-	memstats       *memoryPair
+	insertDuration        time.Duration
+	serviceDeleteDuration time.Duration
+	cleanupDuration       time.Duration
+	memstats              *memoryPair
 }
 
-func (r run) insert() time.Duration { return r.insertDuration }
-func (r run) delete() time.Duration { return r.deleteDuration }
-func (r run) mem() *memoryPair      { return r.memstats }
+func (r run) insert() time.Duration        { return r.insertDuration }
+func (r run) serviceDelete() time.Duration { return r.serviceDeleteDuration }
+func (r run) cleanup() time.Duration       { return r.cleanupDuration }
+func (r run) mem() *memoryPair             { return r.memstats }
 
 func printMemoryStats(pairs []*memoryPair, testSize int) {
 	Min, Max, Avg := calculateStatistics(pairs)
@@ -339,6 +368,11 @@ func printTimeStats(durations []time.Duration, testSize int) {
 	fmt.Printf("Min: Reconciled %d objects in %-11s (%-9s per service / %6.0f services per second)\n", testSize, Min, minPerService, float64(time.Second)/float64(minPerService))
 	fmt.Printf("Avg: Reconciled %d objects in %-11s (%-9s per service / %6.0f services per second)\n", testSize, Avg, avgPerService, float64(time.Second)/float64(avgPerService))
 	fmt.Printf("Max: Reconciled %d objects in %-11s (%-9s per service / %6.0f services per second)\n", testSize, Max, maxPerService, float64(time.Second)/float64(maxPerService))
+}
+
+func printDurationStats(durations []time.Duration) {
+	Min, Max, Avg := calculateTimeStats(durations)
+	fmt.Printf("Min: %s\nAvg: %s\nMax: %s\n", Min, Avg, Max)
 }
 
 func calculateTimeStats(durations []time.Duration) (Min, Max, Avg time.Duration) {
