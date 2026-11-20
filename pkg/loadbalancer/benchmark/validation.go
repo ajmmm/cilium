@@ -26,9 +26,8 @@ import (
 	"github.com/cilium/cilium/pkg/source"
 )
 
-// validateServiceMatcherLRPs verifies that the generated and parsed policies
-// retain the matcher structure needed to exercise the named-port pod scan.
-func validateServiceMatcherLRPs(
+// validateLRPs verifies that generated policies retain the configured matcher structure.
+func validateLRPs(
 	db *statedb.DB,
 	lrps statedb.Table[*redirectpolicy.LocalRedirectPolicy],
 	objects *benchmarkObjectSet,
@@ -49,7 +48,10 @@ func validateServiceMatcherLRPs(
 		id := loadbalancer.NewServiceName(lrp.Namespace, lrp.Name)
 		matcher := lrp.Spec.RedirectFrontend.ServiceMatcher
 		if matcher == nil {
-			return fmt.Errorf("policy %s does not use a service matcher", id)
+			if lrp.Spec.RedirectFrontend.AddressMatcher == nil || !objects.addressMatcher.IsValid() {
+				return fmt.Errorf("policy %s does not use a configured frontend matcher", id)
+			}
+			continue
 		}
 		if len(matcher.ToPorts) != 0 {
 			return fmt.Errorf("policy %s filters frontend ports, want all service ports", id)
@@ -76,6 +78,15 @@ func validateServiceMatcherLRPs(
 	}
 
 	for lrp := range lrps.All(txn) {
+		if lrp.LRPType == lrpTypes.LRPTypeAddressMatcher {
+			if !objects.addressMatcher.IsValid() || lrp.FrontendType != lrpTypes.FrontendTypeAddressSinglePort {
+				return fmt.Errorf("unexpected address matcher policy %s", lrp.ID)
+			}
+			if len(lrp.FrontendMappings) != 1 {
+				return fmt.Errorf("policy %s does not match configured address %s", lrp.ID, objects.addressMatcher)
+			}
+			continue
+		}
 		wantService, found := expectedServices[lrp.ID]
 		if !found {
 			return fmt.Errorf("unexpected policy %s", lrp.ID)
@@ -109,7 +120,7 @@ func validateServiceMatcherLRPs(
 func checkTables(db *statedb.DB, writer *writer.Writer, objects *benchmarkObjectSet) error {
 	txn := db.ReadTxn()
 	var err error
-	hasServiceMatcherLRPs := len(objects.lrps) > 0
+	hasLRPs := len(objects.lrps) > 0
 	expectedServices := make(map[loadbalancer.ServiceName]*slim_corev1.Service, len(objects.services))
 	expectedEndpoints := make(map[loadbalancer.ServiceName]*k8s.Endpoints, len(objects.endpointSlices))
 	for _, svc := range objects.services {
@@ -121,7 +132,7 @@ func checkTables(db *statedb.DB, writer *writer.Writer, objects *benchmarkObject
 	}
 
 	expectedServiceCount := len(objects.services)
-	if hasServiceMatcherLRPs {
+	if hasLRPs {
 		expectedServiceCount += len(objects.lrps)
 	}
 	if servicesNo := writer.Services().NumObjects(txn); servicesNo != expectedServiceCount {
@@ -144,10 +155,29 @@ func checkTables(db *statedb.DB, writer *writer.Writer, objects *benchmarkObject
 		}
 	}
 
-	if frontendsNo := writer.Frontends().NumObjects(txn); frontendsNo != len(objects.services) {
-		err = errors.Join(err, fmt.Errorf("incorrect number of frontends, got %d, want %d", frontendsNo, len(objects.services)))
+	expectedFrontends := len(objects.services)
+	if objects.addressMatcher.IsValid() {
+		expectedFrontends++
+	}
+	if frontendsNo := writer.Frontends().NumObjects(txn); frontendsNo != expectedFrontends {
+		err = errors.Join(err, fmt.Errorf("incorrect number of frontends, got %d, want %d", frontendsNo, expectedFrontends))
 	}
 	for fe := range writer.Frontends().All(txn) {
+		if fe.ServiceName.Equal(objects.addressService) {
+			if fe.Type != loadbalancer.SVCTypeLocalRedirect {
+				err = errors.Join(err, fmt.Errorf("incorrect address matcher frontend type for %s, got %v, want %v", fe.ServiceName, fe.Type, loadbalancer.SVCTypeLocalRedirect))
+			}
+			if fe.Address.Addr() != objects.addressMatcher.Addr() || fe.Address.Port() != objects.addressMatcher.Port() || fe.Address.Protocol() != loadbalancer.TCP {
+				err = errors.Join(err, fmt.Errorf("incorrect address matcher frontend address for %s, got %s, want %s/TCP", fe.ServiceName, fe.Address, objects.addressMatcher))
+			}
+			if fe.Status.Kind != reconciler.StatusKindDone {
+				err = errors.Join(err, fmt.Errorf("incorrect status for address matcher frontend %s, got %v, want Done", fe.ServiceName, fe.Status.Kind))
+			}
+			if fe.RedirectTo != nil {
+				err = errors.Join(err, fmt.Errorf("address matcher frontend %s was unexpectedly redirected to %s", fe.ServiceName, fe.RedirectTo))
+			}
+			continue
+		}
 		want, found := expectedServices[fe.ServiceName]
 		if !found {
 			err = errors.Join(err, fmt.Errorf("unexpected frontend service %s", fe.ServiceName))
@@ -252,12 +282,33 @@ func isExpectedLRPBackend(be *loadbalancer.Backend, expectedIPs map[netip.Addr]s
 	if slices.Contains(be.PortNames, "dns") {
 		return be.Address.Port() == 53 && be.Address.Protocol() == loadbalancer.UDP
 	}
+	if slices.Contains(be.PortNames, "http") {
+		return be.Address.Addr() == lastBackendIP && be.Address.Port() == 80 && be.Address.Protocol() == loadbalancer.TCP
+	}
 
 	// Only the final generated pod contributes a dns-tcp TCP/53 backend.
 	return be.Address.Addr() == lastBackendIP &&
 		slices.Contains(be.PortNames, "dns-tcp") &&
 		be.Address.Port() == 53 &&
 		be.Address.Protocol() == loadbalancer.TCP
+}
+
+func addressMatcherFrontendReady(db *statedb.DB, writer *writer.Writer, objects *benchmarkObjectSet) bool {
+	if !objects.addressMatcher.IsValid() {
+		return false
+	}
+	txn := db.ReadTxn()
+	for fe := range writer.Frontends().All(txn) {
+		if fe.ServiceName.Equal(objects.addressService) &&
+			fe.Address.Addr() == objects.addressMatcher.Addr() &&
+			fe.Address.Port() == objects.addressMatcher.Port() &&
+			fe.Address.Protocol() == loadbalancer.TCP {
+			return fe.Type == loadbalancer.SVCTypeLocalRedirect &&
+				fe.Status.Kind == reconciler.StatusKindDone &&
+				fe.RedirectTo == nil
+		}
+	}
+	return false
 }
 
 func fastCheckTables(db *statedb.DB, writer *writer.Writer, expectedFrontends, expectedRedirects int, lastPendingRevision statedb.Revision) (reconciled bool, nextRevision statedb.Revision) {
@@ -286,7 +337,14 @@ func fastCheckTables(db *statedb.DB, writer *writer.Writer, expectedFrontends, e
 
 func fastCheckServiceDeletion(db *statedb.DB, writer *writer.Writer, objects *benchmarkObjectSet) bool {
 	txn := db.ReadTxn()
-	if writer.Frontends().NumObjects(txn) != 0 {
+	expectedFrontends := 0
+	if objects.addressMatcher.IsValid() {
+		expectedFrontends = 1
+	}
+	if writer.Frontends().NumObjects(txn) != expectedFrontends {
+		return false
+	}
+	if objects.addressMatcher.IsValid() && !addressMatcherFrontendReady(db, writer, objects) {
 		return false
 	}
 	if writer.Services().NumObjects(txn) != len(objects.lrpTargets) {

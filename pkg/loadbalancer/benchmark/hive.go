@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
+// This file was not reviewed by a human before submission
 
 package benchmark
 
@@ -46,7 +47,7 @@ var (
 func testHive(maps lbmaps.LBMaps,
 	services chan resource.Event[*slim_corev1.Service],
 	endpoints chan resource.Event[*k8s.Endpoints],
-	serviceMatcherLRPEnabled bool,
+	lrpEnabled bool,
 	reflectorWaitTime time.Duration,
 	writerPtr **writer.Writer,
 	db **statedb.DB,
@@ -65,7 +66,7 @@ func testHive(maps lbmaps.LBMaps,
 	}
 
 	lrpCells := []cell.Cell{}
-	if serviceMatcherLRPEnabled {
+	if lrpEnabled {
 		lrpCells = append(lrpCells,
 			redirectpolicy.Cell,
 			cell.Provide(func() redirectpolicy.TestSkipLBMap { return &noopSkipLBMap{} }),
@@ -151,7 +152,7 @@ func testHive(maps lbmaps.LBMaps,
 			}),
 		),
 	)
-	if serviceMatcherLRPEnabled {
+	if lrpEnabled {
 		h.Viper().Set(redirectpolicy.EnableLocalRedirectPolicyName, true)
 	}
 	return h

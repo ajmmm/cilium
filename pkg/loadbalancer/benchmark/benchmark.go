@@ -41,6 +41,7 @@ type Config struct {
 	LRPBackends                      int
 	UnmatchedLRPNamespacePods        int
 	ServiceMatcherLRPSharedNamespace bool
+	AddressMatcherLRP                bool
 	ReflectorWaitTime                time.Duration
 	LogLevel                         slog.Level
 	Validate                         bool
@@ -84,6 +85,10 @@ func RunBenchmark(cfg Config) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
 
 	objects := generateBenchmarkObjects(log, cfg)
+	addressMatcherCount := 0
+	if cfg.AddressMatcherLRP {
+		addressMatcherCount = 1
+	}
 
 	var maps lbmaps.LBMaps
 	lbMapMode := "fake"
@@ -97,9 +102,9 @@ func RunBenchmark(cfg Config) {
 					RetryBackoffMin:         time.Second,
 					RetryBackoffMax:         time.Second,
 					LBMapEntries:            3 * objects.backendCount,
-					LBServiceMapEntries:     3 * cfg.Services,
+					LBServiceMapEntries:     3 * (cfg.Services + cfg.ServiceMatcherLRPs + addressMatcherCount),
 					LBBackendMapEntries:     3 * objects.backendCount,
-					LBRevNatEntries:         3 * cfg.Services,
+					LBRevNatEntries:         3 * (cfg.Services + cfg.ServiceMatcherLRPs + addressMatcherCount),
 					LBAffinityMapEntries:    3 * objects.backendCount,
 					LBSourceRangeAllTypes:   false,
 					LBSourceRangeMapEntries: 3 * cfg.Services,
@@ -135,7 +140,8 @@ func RunBenchmark(cfg Config) {
 		podTable statedb.Table[k8sTables.LocalPod]
 		lrpTable statedb.Table[*redirectpolicy.LocalRedirectPolicy]
 	)
-	h := testHive(maps, services, endpoints, cfg.ServiceMatcherLRPs > 0, cfg.ReflectorWaitTime, &writer, &db, &bo, &client, &podTable, &lrpTable)
+	hasLRPs := len(objects.lrps) > 0
+	h := testHive(maps, services, endpoints, hasLRPs, cfg.ReflectorWaitTime, &writer, &db, &bo, &client, &podTable, &lrpTable)
 
 	if err := h.Start(log, context.TODO()); err != nil {
 		panic(err)
@@ -148,7 +154,7 @@ func RunBenchmark(cfg Config) {
 
 	var runs []run
 	reconciliationTimeout := 10 * time.Second
-	if cfg.ServiceMatcherLRPs > 0 {
+	if hasLRPs {
 		reconciliationTimeout = 5 * time.Minute
 	}
 
@@ -160,7 +166,7 @@ func RunBenchmark(cfg Config) {
 		// Kubernetes client and is excluded from the reconciliation measurement.
 		//
 		fmt.Printf("Iteration %d: ", i)
-		if cfg.ServiceMatcherLRPs > 0 {
+		if hasLRPs {
 			fmt.Print("setup pods ")
 			if err := createPods(context.TODO(), client, objects.pods); err != nil {
 				panic(err)
@@ -175,8 +181,20 @@ func RunBenchmark(cfg Config) {
 			if !waitForTableSize(db, lrpTable, len(objects.lrps), reconciliationTimeout) {
 				panic("Timeout waiting for local redirect policies.")
 			}
-			if err := validateServiceMatcherLRPs(db, lrpTable, objects); err != nil {
+			if err := validateLRPs(db, lrpTable, objects); err != nil {
 				panic(fmt.Sprintf("invalid Local Redirect Policy benchmark workload: %v", err))
+			}
+			if cfg.AddressMatcherLRP {
+				ready := false
+				for waitStart := time.Now(); time.Since(waitStart) < reconciliationTimeout; time.Sleep(10 * time.Millisecond) {
+					ready = addressMatcherFrontendReady(db, writer, objects)
+					if ready {
+						break
+					}
+				}
+				if !ready {
+					panic("Timeout waiting for address matcher frontend reconciliation.")
+				}
 			}
 		}
 
@@ -195,9 +213,9 @@ func RunBenchmark(cfg Config) {
 		fmt.Print("wait ")
 		nextRevision := statedb.Revision(0)
 		reconciled := false
-		expectedRedirects := max(cfg.ServiceMatcherLRPs, 0)
+		expectedRedirects := cfg.ServiceMatcherLRPs
 		for waitStart := time.Now(); time.Since(waitStart) < reconciliationTimeout; time.Sleep(10 * time.Millisecond) {
-			reconciled, nextRevision = fastCheckTables(db, writer, cfg.Services, expectedRedirects, nextRevision)
+			reconciled, nextRevision = fastCheckTables(db, writer, cfg.Services+addressMatcherCount, expectedRedirects, nextRevision)
 			if reconciled {
 				break
 			}
@@ -297,7 +315,7 @@ func RunBenchmark(cfg Config) {
 	fmt.Println()
 	fmt.Printf("Service delete statistics from N=%d iterations:\n", cfg.Iterations)
 	printTimeStats(mapFunc(runs, run.serviceDelete), cfg.Services)
-	if cfg.ServiceMatcherLRPs > 0 {
+	if hasLRPs {
 		fmt.Println()
 		fmt.Printf("LRP and pod cleanup statistics from N=%d iterations:\n", cfg.Iterations)
 		printDurationStats(mapFunc(runs, run.cleanup))

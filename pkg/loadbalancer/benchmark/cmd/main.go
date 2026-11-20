@@ -22,6 +22,7 @@ var svcMatcherCount = flag.Int("svc-matcher-count", 0, "number of ServiceMatcher
 var svcMatcherBackends = flag.Int("svc-matcher-backends", 1, "number of matching local backend pods per ServiceMatcher LRP")
 var svcMatcherUnmatchedPods = flag.Int("svc-matcher-unmatched-pods", 0, "number of nonmatching local pods per ServiceMatcher LRP namespace")
 var svcMatcherSharedNamespace = flag.Bool("svc-matcher-shared-namespace", false, "place all ServiceMatcher LRP benchmark objects in one namespace")
+var addressMatcherLRP = flag.Bool("addr-matcher", false, "create one AddressMatcher LRP for 169.254.169.254:80")
 var iterations = flag.Int("iterations", 10, "number of benchmark runs to perform")
 
 // Small workloads may not fill the reflector event buffer. In that case, the
@@ -60,6 +61,7 @@ func main() {
 		LRPBackends:                      *svcMatcherBackends,
 		UnmatchedLRPNamespacePods:        *svcMatcherUnmatchedPods,
 		ServiceMatcherLRPSharedNamespace: *svcMatcherSharedNamespace,
+		AddressMatcherLRP:                *addressMatcherLRP,
 		ReflectorWaitTime:                *reflectorWaitTime,
 		LogLevel:                         level,
 		Validate:                         *validate,

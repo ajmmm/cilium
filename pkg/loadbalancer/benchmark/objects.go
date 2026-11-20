@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
+// This file was not reviewed by a human before submission
 
 package benchmark
 
@@ -24,6 +25,8 @@ import (
 )
 
 var (
+	benchmarkAddressMatcher = netip.MustParseAddrPort("169.254.169.254:80")
+
 	//go:embed testdata/service.yaml
 	serviceYaml []byte
 
@@ -42,19 +45,25 @@ type benchmarkObjectSet struct {
 	lrpBackendLastIP map[loadbalancer.ServiceName]netip.Addr
 	lrpServices      map[loadbalancer.ServiceName]loadbalancer.ServiceName
 	lrpTargets       map[loadbalancer.ServiceName]loadbalancer.ServiceName
+	addressMatcher   netip.AddrPort
+	addressService   loadbalancer.ServiceName
 }
 
 func generateBenchmarkObjects(logger *slog.Logger, cfg Config) *benchmarkObjectSet {
+	addressMatcherCount := 0
+	if cfg.AddressMatcherLRP {
+		addressMatcherCount = 1
+	}
 	objects := &benchmarkObjectSet{
 		services:       make([]*slim_corev1.Service, 0, cfg.Services),
 		endpointSlices: make([]*k8s.Endpoints, 0, cfg.Services),
 	}
-	if cfg.ServiceMatcherLRPs > 0 {
+	if cfg.ServiceMatcherLRPs > 0 || cfg.AddressMatcherLRP {
 		unmatchedNamespaces := cfg.ServiceMatcherLRPs
 		if cfg.ServiceMatcherLRPSharedNamespace {
 			unmatchedNamespaces = 1
 		}
-		podCapacity := cfg.ServiceMatcherLRPs*cfg.LRPBackends + unmatchedNamespaces*cfg.UnmatchedLRPNamespacePods
+		podCapacity := cfg.ServiceMatcherLRPs*cfg.LRPBackends + unmatchedNamespaces*cfg.UnmatchedLRPNamespacePods + addressMatcherCount
 		objects.pods = make([]*slim_corev1.Pod, 0, podCapacity)
 		objects.lrps = make([]*ciliumv2.CiliumLocalRedirectPolicy, 0, cfg.ServiceMatcherLRPs)
 		objects.lrpBackendCounts = make(map[loadbalancer.ServiceName]int, cfg.ServiceMatcherLRPs)
@@ -186,6 +195,29 @@ func generateBenchmarkObjects(logger *slog.Logger, cfg Config) *benchmarkObjectS
 			}
 		}
 	}
+	if cfg.AddressMatcherLRP {
+		addrPort := benchmarkAddressMatcher
+		lrp := newAddressMatcherLRP(addrPort)
+		objects.lrps = append(objects.lrps, lrp)
+		objects.addressMatcher = addrPort
+		objects.addressService = localRedirectServiceName(lrp.Namespace, lrp.Name)
+
+		unmatchedNamespaces := cfg.ServiceMatcherLRPs
+		if cfg.ServiceMatcherLRPSharedNamespace && unmatchedNamespaces > 0 {
+			unmatchedNamespaces = 1
+		}
+		backendIndex := cfg.Services*cfg.EndpointsPerService + cfg.ServiceMatcherLRPs*cfg.LRPBackends + unmatchedNamespaces*cfg.UnmatchedLRPNamespacePods
+		podIP := offsetIPv4(sliceAddr, backendIndex).String()
+		pod := newAddressMatcherPod(lrp.Namespace, podIP)
+		objects.pods = append(objects.pods, pod)
+		objects.backendCount++
+
+		backendIP := netip.MustParseAddr(podIP)
+		objects.lrpBackendCounts[objects.addressService] = 1
+		objects.lrpBackendIPs[objects.addressService] = map[netip.Addr]struct{}{backendIP: {}}
+		objects.lrpBackendLastIP[objects.addressService] = backendIP
+		objects.lrpTargets[objects.addressService] = objects.addressService
+	}
 	return objects
 }
 
@@ -283,6 +315,49 @@ func newServiceMatcherLRP(namespace, serviceName, selectorValue string, serviceI
 			},
 		},
 	}
+}
+
+const benchmarkAddressMatcherLRPName = "benchmark-address-matcher"
+
+func newAddressMatcherLRP(addrPort netip.AddrPort) *ciliumv2.CiliumLocalRedirectPolicy {
+	return &ciliumv2.CiliumLocalRedirectPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      benchmarkAddressMatcherLRPName,
+			Namespace: "test",
+		},
+		Spec: ciliumv2.CiliumLocalRedirectPolicySpec{
+			RedirectFrontend: ciliumv2.RedirectFrontend{
+				AddressMatcher: &ciliumv2.Frontend{
+					IP: addrPort.Addr().String(),
+					ToPorts: []ciliumv2.PortInfo{{
+						Port:     fmt.Sprint(addrPort.Port()),
+						Protocol: policyapi.ProtoTCP,
+					}},
+				},
+			},
+			RedirectBackend: ciliumv2.RedirectBackend{
+				LocalEndpointSelector: slim_metav1.LabelSelector{
+					MatchLabels: map[string]string{"name": benchmarkAddressMatcherLRPName},
+				},
+				ToPorts: []ciliumv2.PortInfo{{
+					Name:     "http",
+					Port:     "80",
+					Protocol: policyapi.ProtoTCP,
+				}},
+			},
+		},
+	}
+}
+
+func newAddressMatcherPod(namespace, podIP string) *slim_corev1.Pod {
+	pod := newPod(namespace, benchmarkAddressMatcherLRPName, 0, 0, 1, podIP, nodeTypes.GetName())
+	pod.Name = benchmarkAddressMatcherLRPName
+	pod.Spec.Containers[0].Ports = []slim_corev1.ContainerPort{{
+		Name:          "http",
+		ContainerPort: 80,
+		Protocol:      slim_corev1.ProtocolTCP,
+	}}
+	return pod
 }
 
 const benchmarkLRPName = "benchmark-lrp"
