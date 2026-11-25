@@ -1,3 +1,5 @@
+<!-- This file was not reviewed by a human before submission -->
+
 # CFP-44138: Cilium Clusterwide Local Redirect Policy
 
 **SIG:** SIG-LB
@@ -337,7 +339,7 @@ The CCLRP controller should reject a policy that has:
 * a `serviceMatcher` that resolves to an unsupported Service
 * a selector or mapping that cannot produce a valid local redirect frontend
 
-If the referenced Service does not currently exist or cannot yet be resolved, the policy should remain inactive and report an observable reconciliation condition until the dependency becomes available.
+If the referenced Service does not currently exist or cannot yet be resolved, the policy should remain inactive. Agents unable to resolve it should report a node-local reconciliation error until the dependency becomes available.
 
 Policies that attempt to claim the same concrete frontend must have deterministic behaviour. The initial implementation should allow only one active owner for a frontend within the same policy type and should report conflicts as errors.
 
@@ -432,7 +434,21 @@ The implementation should keep the following boundaries clear:
 
 The internal tables, Go structures, and controller decomposition may evolve during implementation. They should not become additional user-facing API commitments in this CFP.
 
-The implementation should include CCLRP status conditions for accepted, rejected, partially resolved, and backend-unavailable states, including the concrete frontends and node-local backends produced by a policy. The status model may evolve during `v2alpha1`, but must be stable before promotion to `v2`.
+#### Status contract
+
+CCLRP status separates policy-level acceptance from node-local reconciliation errors. It must not claim that every node has realized the policy when agents report only failures.
+
+The status should expose an `Accepted` condition, with `observedGeneration`, owned by the operator. `Accepted=True` means the policy passes the CCLRP-level semantic validation required for reconciliation. Invalid object shape should be rejected by CRD validation where possible; semantic errors that cannot be expressed in the schema should be reported as `Accepted=False`. Service availability and node-local reconciliation outcomes do not affect this condition.
+
+Agents should report only node-local reconciliation failures in a `nodeErrors` map keyed by node name. Each entry should include the policy `observedGeneration`, a stable reason, a concise message, and the time the failure was last changed. Each agent owns and updates only its own entry. A node removes its entry after it successfully reconciles the current policy generation. An absent entry means that the node has no active failure reported; it is not proof that every node has reconciled successfully or is ready.
+
+CCLRP should not expose a cluster-wide `Ready` condition unless a mechanism can establish that all relevant nodes have reconciled the current generation. Exact frontend and backend mappings remain available through per-node Cilium agent diagnostics rather than an unbounded list in policy status.
+
+Agents must write status only when a failure first appears, changes, or clears. Identical errors must be coalesced, and status retries must be rate-limited with jitter. Policy-level validation belongs in the operator so a globally invalid policy does not cause every agent to report the same error. Agent status updates must target only the reporting node's entry so concurrent reports do not overwrite each other. Reports must be tied to the policy generation; stale reports from older generations must not be interpreted as current failures. The implementation must define how reports for deleted nodes are cleaned up.
+
+The prototype should validate this failure-only reporting model under node churn and large-cluster failure scenarios, including the write rate when many agents encounter the same local reconciliation error. If the resulting status volume is not acceptable, the API contract should be revisited before promotion to `v2`.
+
+The status model may evolve during `v2alpha1`, but must be stable before promotion to `v2`.
 
 A prototype implementation should be used to validate the API and reconciliation behaviour with tests covering address matching, Service matching, namespace-restricted selectors, explicit port translation, invalid configuration, backend churn, and nodes without local backends preserving the original frontend behaviour.
 
