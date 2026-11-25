@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -8,6 +9,10 @@ package v2alpha1
 // CiliumCIDRGroupListerExpansion allows custom methods to be added to
 // CiliumCIDRGroupLister.
 type CiliumCIDRGroupListerExpansion interface{}
+
+// CiliumClusterwideLocalRedirectPolicyListerExpansion allows custom methods to be added to
+// CiliumClusterwideLocalRedirectPolicyLister.
+type CiliumClusterwideLocalRedirectPolicyListerExpansion interface{}
 
 // CiliumDatapathPluginListerExpansion allows custom methods to be added to
 // CiliumDatapathPluginLister.

@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -6,6 +7,8 @@
 package v2alpha1
 
 type CiliumCIDRGroupExpansion interface{}
+
+type CiliumClusterwideLocalRedirectPolicyExpansion interface{}
 
 type CiliumDatapathPluginExpansion interface{}
 

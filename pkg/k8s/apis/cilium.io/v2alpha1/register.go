@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -92,6 +93,11 @@ const (
 	CRNCPluralName     = "ciliumresourcenetworkconfigs"
 	CRNCKindDefinition = "CiliumResourceNetworkConfig"
 	CRNCName           = CRNCPluralName + "." + CustomResourceDefinitionGroup
+
+	// CiliumClusterwideLocalRedirectPolicy (CCLRP)
+	CCLRPPluralName     = "ciliumclusterwidelocalredirectpolicies"
+	CCLRPKindDefinition = "CiliumClusterwideLocalRedirectPolicy"
+	CCLRPName           = CCLRPPluralName + "." + CustomResourceDefinitionGroup
 )
 
 // SchemeGroupVersion is group version used to register these objects
@@ -161,6 +167,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&CiliumResourceIPPoolList{},
 		&CiliumResourceNetworkConfig{},
 		&CiliumResourceNetworkConfigList{},
+		&CiliumClusterwideLocalRedirectPolicy{},
+		&CiliumClusterwideLocalRedirectPolicyList{},
 	)
 
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)

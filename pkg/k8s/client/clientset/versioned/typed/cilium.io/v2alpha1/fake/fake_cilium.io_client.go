@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -17,6 +18,10 @@ type FakeCiliumV2alpha1 struct {
 
 func (c *FakeCiliumV2alpha1) CiliumCIDRGroups() v2alpha1.CiliumCIDRGroupInterface {
 	return newFakeCiliumCIDRGroups(c)
+}
+
+func (c *FakeCiliumV2alpha1) CiliumClusterwideLocalRedirectPolicies() v2alpha1.CiliumClusterwideLocalRedirectPolicyInterface {
+	return newFakeCiliumClusterwideLocalRedirectPolicies(c)
 }
 
 func (c *FakeCiliumV2alpha1) CiliumDatapathPlugins() v2alpha1.CiliumDatapathPluginInterface {

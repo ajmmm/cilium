@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -16,6 +17,7 @@ import (
 type CiliumV2alpha1Interface interface {
 	RESTClient() rest.Interface
 	CiliumCIDRGroupsGetter
+	CiliumClusterwideLocalRedirectPoliciesGetter
 	CiliumDatapathPluginsGetter
 	CiliumEndpointSlicesGetter
 	CiliumGatewayClassConfigsGetter
@@ -35,6 +37,10 @@ type CiliumV2alpha1Client struct {
 
 func (c *CiliumV2alpha1Client) CiliumCIDRGroups() CiliumCIDRGroupInterface {
 	return newCiliumCIDRGroups(c)
+}
+
+func (c *CiliumV2alpha1Client) CiliumClusterwideLocalRedirectPolicies() CiliumClusterwideLocalRedirectPolicyInterface {
+	return newCiliumClusterwideLocalRedirectPolicies(c)
 }
 
 func (c *CiliumV2alpha1Client) CiliumDatapathPlugins() CiliumDatapathPluginInterface {

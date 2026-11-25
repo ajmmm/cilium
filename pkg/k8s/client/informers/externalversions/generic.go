@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -81,6 +82,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		// Group=cilium.io, Version=v2alpha1
 	case v2alpha1.SchemeGroupVersion.WithResource("ciliumcidrgroups"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Cilium().V2alpha1().CiliumCIDRGroups().Informer()}, nil
+	case v2alpha1.SchemeGroupVersion.WithResource("ciliumclusterwidelocalredirectpolicies"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Cilium().V2alpha1().CiliumClusterwideLocalRedirectPolicies().Informer()}, nil
 	case v2alpha1.SchemeGroupVersion.WithResource("ciliumdatapathplugins"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Cilium().V2alpha1().CiliumDatapathPlugins().Informer()}, nil
 	case v2alpha1.SchemeGroupVersion.WithResource("ciliumendpointslices"):

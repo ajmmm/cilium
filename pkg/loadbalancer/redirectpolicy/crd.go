@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -14,6 +15,7 @@ import (
 	"github.com/cilium/cilium/pkg/k8s/apis"
 	ciliumClient "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/client"
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	ciliumv2alpha1 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 )
 
@@ -28,7 +30,7 @@ func (def lrpOperatorConfig) Flags(flags *pflag.FlagSet) {
 
 var defaultLRPOperatorConfig = lrpOperatorConfig{EnableConfig: defaultEnableConfig}
 
-// OperatorCell registers the CiliumLocalRedirectPolicy CRD when Local Redirect
+// OperatorCell registers the local redirect policy CRDs when Local Redirect
 // Policy support is enabled.
 var OperatorCell = cell.Module(
 	"local-redirect-policy-operator",
@@ -44,12 +46,25 @@ func newLRPCRDRegistration(cfg lrpOperatorConfig) apis.RegisterCRDsFuncOut {
 			if !cfg.IsEnabled() {
 				return nil, nil
 			}
-			return ciliumClient.CreateCustomResourceDefinition(
+			needsMigration, err := ciliumClient.CreateCustomResourceDefinition(
 				ctx,
 				logger,
 				client,
 				ciliumv2.CLRPName,
 			)
+			if err != nil {
+				return nil, err
+			}
+			cclrpNeedsMigration, err := ciliumClient.CreateCustomResourceDefinition(
+				ctx,
+				logger,
+				client,
+				ciliumv2alpha1.CCLRPName,
+			)
+			if err != nil {
+				return nil, err
+			}
+			return append(needsMigration, cclrpNeedsMigration...), nil
 		},
 	}
 }

@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -102,6 +103,9 @@ const (
 
 	// CRNCCRDName is the full name of the CiliumResourceNetworkConfig CRD.
 	CRNCCRDName = k8sconstv2alpha1.CRNCKindDefinition + "/" + k8sconstv2alpha1.CustomResourceDefinitionVersion
+
+	// CCLRPCRDName is the full name of the CCLRP CRD.
+	CCLRPCRDName = k8sconstv2alpha1.CCLRPKindDefinition + "/" + k8sconstv2alpha1.CustomResourceDefinitionVersion
 )
 
 type CRDList struct {
@@ -215,6 +219,10 @@ func CustomResourceDefinitionList() map[string]*CRDList {
 		synced.CRDResourceName(k8sconstv2alpha1.CRNCName): {
 			Name:     CRNCCRDName,
 			FullName: k8sconstv2alpha1.CRNCName,
+		},
+		synced.CRDResourceName(k8sconstv2alpha1.CCLRPName): {
+			Name:     CCLRPCRDName,
+			FullName: k8sconstv2alpha1.CCLRPName,
 		},
 	}
 }
@@ -333,6 +341,9 @@ var (
 	//go:embed crds/v2alpha1/ciliumnetworkdriverclusterconfigs.yaml
 	crdsv2Alpha1CiliumNetworkDriverClusterConfigs []byte
 
+	//go:embed crds/v2alpha1/ciliumclusterwidelocalredirectpolicies.yaml
+	crdsv2Alpha1CiliumClusterwideLocalRedirectPolicies []byte
+
 	//go:embed crds/v2alpha1/ciliumnetworkdrivernodeconfigs.yaml
 	crdsv2Alpha1CiliumNetworkDriverNodeConfigs []byte
 
@@ -407,6 +418,8 @@ func GetPregeneratedCRD(logger *slog.Logger, crdName string) apiextensionsv1.Cus
 		crdBytes = crdsv2Alpha1CiliumResourceIPPools
 	case CRNCCRDName:
 		crdBytes = crdsv2Alpha1CiliumResourceNetworkConfigs
+	case CCLRPCRDName:
+		crdBytes = crdsv2Alpha1CiliumClusterwideLocalRedirectPolicies
 	default:
 		logging.Fatal(logger, "Pregenerated CRD does not exist", logfields.CRDName, crdName)
 	}

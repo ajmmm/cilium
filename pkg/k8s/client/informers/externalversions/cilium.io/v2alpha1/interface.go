@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -13,6 +14,8 @@ import (
 type Interface interface {
 	// CiliumCIDRGroups returns a CiliumCIDRGroupInformer.
 	CiliumCIDRGroups() TypedCiliumCIDRGroupInformer
+	// CiliumClusterwideLocalRedirectPolicies returns a CiliumClusterwideLocalRedirectPolicyInformer.
+	CiliumClusterwideLocalRedirectPolicies() TypedCiliumClusterwideLocalRedirectPolicyInformer
 	// CiliumDatapathPlugins returns a CiliumDatapathPluginInformer.
 	CiliumDatapathPlugins() TypedCiliumDatapathPluginInformer
 	// CiliumEndpointSlices returns a CiliumEndpointSliceInformer.
@@ -49,6 +52,11 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 // CiliumCIDRGroups returns a TypedCiliumCIDRGroupInformer.
 func (v *version) CiliumCIDRGroups() TypedCiliumCIDRGroupInformer {
 	return &ciliumCIDRGroupInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// CiliumClusterwideLocalRedirectPolicies returns a TypedCiliumClusterwideLocalRedirectPolicyInformer.
+func (v *version) CiliumClusterwideLocalRedirectPolicies() TypedCiliumClusterwideLocalRedirectPolicyInformer {
+	return &ciliumClusterwideLocalRedirectPolicyInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // CiliumDatapathPlugins returns a TypedCiliumDatapathPluginInformer.
