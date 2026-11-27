@@ -19,14 +19,15 @@ import (
 	"github.com/cilium/cilium/pkg/metrics/metric"
 )
 
-// Cell implements the processing of the CiliumLocalRedirectPolicy CRD.
+// Cell implements the processing of the CiliumLocalRedirectPolicy and
+// CiliumClusterwideLocalRedirectPolicy CRDs.
 // For each policy it creates a pseudo-service with suffix -local-redirect
 // and associates to it all matching local pods as backends. The service
 // frontends that are being redirected will then take the backends of the
-// pseudo-service.
+// pseudo-service. CCLRPs keep their compiled per-node plan in a separate table.
 var Cell = cell.Module(
 	"local-redirect-policies",
-	"Controller for CiliumLocalRedirectPolicy",
+	"Controllers for local redirect policies",
 
 	ConfigCell,
 
@@ -55,6 +56,7 @@ var Cell = cell.Module(
 		NewLRPTable,
 		NewCCLRPTable,
 		NewCCLRPStateTable,
+		newCCLRPController,
 		newDesiredSkipLBTable,
 	),
 
@@ -63,6 +65,8 @@ var Cell = cell.Module(
 		registerLRPReflector,
 		// Reflect CiliumClusterwideLocalRedirectPolicy CRDs into normalized intent.
 		registerCCLRPReflector,
+		// Compile CCLRP intent against local pods and apply redirects via the LB Writer.
+		registerCCLRPController,
 
 		// Register a controller to process the changes in the LRP, pod and frontend
 		// tables.
