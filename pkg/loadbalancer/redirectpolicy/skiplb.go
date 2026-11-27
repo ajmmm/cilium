@@ -234,24 +234,92 @@ func (ops *skiplbOps) Delete(ctx context.Context, txn statedb.ReadTxn, _ statedb
 
 // Prune implements reconciler.Operations.
 func (ops *skiplbOps) Prune(ctx context.Context, txn statedb.ReadTxn, objs iter.Seq2[*desiredSkipLB, statedb.Revision]) (err error) {
-	// Collect the known netns cookies of all existing endpoints.
-	known := sets.New[uint64]()
+	// Collect the desired SkipLB entries after state restoration. This also lets
+	// us migrate old entries, which did not distinguish protocols.
+	desired4 := sets.New[lbmaps.SkipLB4Key]()
+	desired6 := sets.New[lbmaps.SkipLB6Key]()
 	for d := range objs {
-		if d.NetnsCookie != nil {
-			known.Insert(*d.NetnsCookie)
+		if d.NetnsCookie == nil {
+			continue
+		}
+		for _, addrs := range d.SkipRedirectForFrontends {
+			for _, addr := range addrs {
+				protocol := uint8(loadbalancer.L4TypeAsProtocolNumber(addr.Protocol()))
+				if addr.IsIPv6() {
+					desired6.Insert(lbmaps.SkipLB6Key{
+						NetnsCookie: *d.NetnsCookie,
+						Address:     addr.Addr().As16(),
+						Port:        addr.Port(),
+						Protocol:    protocol,
+					})
+				} else {
+					desired4.Insert(lbmaps.SkipLB4Key{
+						NetnsCookie: *d.NetnsCookie,
+						Address:     addr.Addr().As4(),
+						Port:        addr.Port(),
+						Protocol:    protocol,
+					})
+				}
+			}
 		}
 	}
-	// Remove SkipLB entries that have unknown cookies.
+
+	// A zero protocol is the legacy ANY-protocol key. Add all desired protocol
+	// aliases before deleting it so the datapath keeps skipping translation
+	// throughout the migration.
 	for key := range ops.m.AllLB4() {
-		if !known.Has(key.NetnsCookie) {
-			if deleteErr := ops.m.DeleteLB4(key); deleteErr != nil {
+		if key.Protocol == 0 {
+			migrationErr := error(nil)
+			for _, protocol := range loadbalancer.AllProtocols {
+				alias := *key
+				alias.Protocol = uint8(loadbalancer.L4TypeAsProtocolNumber(protocol))
+				if !desired4.Has(alias) {
+					continue
+				}
+				if addErr := ops.m.AddLB4(key.NetnsCookie, netip.AddrFrom4(key.Address), key.Port, alias.Protocol); addErr != nil {
+					migrationErr = errors.Join(migrationErr, addErr)
+				}
+			}
+			if migrationErr != nil {
+				err = errors.Join(err, migrationErr)
+				continue
+			}
+			if deleteErr := ops.m.DeleteLB4(key); deleteErr != nil && !errors.Is(deleteErr, ebpf.ErrKeyNotExist) {
+				err = errors.Join(err, deleteErr)
+			}
+			continue
+		}
+		if !desired4.Has(*key) {
+			if deleteErr := ops.m.DeleteLB4(key); deleteErr != nil && !errors.Is(deleteErr, ebpf.ErrKeyNotExist) {
 				err = errors.Join(err, deleteErr)
 			}
 		}
 	}
+
 	for key := range ops.m.AllLB6() {
-		if !known.Has(key.NetnsCookie) {
-			if deleteErr := ops.m.DeleteLB6(key); deleteErr != nil {
+		if key.Protocol == 0 {
+			migrationErr := error(nil)
+			for _, protocol := range loadbalancer.AllProtocols {
+				alias := *key
+				alias.Protocol = uint8(loadbalancer.L4TypeAsProtocolNumber(protocol))
+				if !desired6.Has(alias) {
+					continue
+				}
+				if addErr := ops.m.AddLB6(key.NetnsCookie, netip.AddrFrom16(key.Address), key.Port, alias.Protocol); addErr != nil {
+					migrationErr = errors.Join(migrationErr, addErr)
+				}
+			}
+			if migrationErr != nil {
+				err = errors.Join(err, migrationErr)
+				continue
+			}
+			if deleteErr := ops.m.DeleteLB6(key); deleteErr != nil && !errors.Is(deleteErr, ebpf.ErrKeyNotExist) {
+				err = errors.Join(err, deleteErr)
+			}
+			continue
+		}
+		if !desired6.Has(*key) {
+			if deleteErr := ops.m.DeleteLB6(key); deleteErr != nil && !errors.Is(deleteErr, ebpf.ErrKeyNotExist) {
 				err = errors.Join(err, deleteErr)
 			}
 		}
