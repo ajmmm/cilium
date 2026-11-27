@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -213,12 +214,14 @@ func (ops *skiplbOps) Delete(ctx context.Context, txn statedb.ReadTxn, _ statedb
 				NetnsCookie: *d.NetnsCookie,
 				Address:     addr.Addr().As16(),
 				Port:        addr.Port(),
+				Protocol:    uint8(loadbalancer.L4TypeAsProtocolNumber(addr.Protocol())),
 			})
 		} else {
 			deleteErr = ops.m.DeleteLB4(&lbmaps.SkipLB4Key{
 				NetnsCookie: *d.NetnsCookie,
 				Address:     addr.Addr().As4(),
 				Port:        addr.Port(),
+				Protocol:    uint8(loadbalancer.L4TypeAsProtocolNumber(addr.Protocol())),
 			})
 		}
 		if deleteErr != nil && !errors.Is(deleteErr, ebpf.ErrKeyNotExist) {
@@ -265,11 +268,12 @@ func (ops *skiplbOps) Update(ctx context.Context, txn statedb.ReadTxn, _ statedb
 	newAddrs := sets.New[loadbalancer.L3n4Addr]()
 	for _, addrs := range d.SkipRedirectForFrontends {
 		for _, addr := range addrs {
+			protocol := uint8(loadbalancer.L4TypeAsProtocolNumber(addr.Protocol()))
 			var addErr error
 			if addr.IsIPv6() {
-				addErr = ops.m.AddLB6(*d.NetnsCookie, addr.Addr(), addr.Port())
+				addErr = ops.m.AddLB6(*d.NetnsCookie, addr.Addr(), addr.Port(), protocol)
 			} else {
-				addErr = ops.m.AddLB4(*d.NetnsCookie, addr.Addr(), addr.Port())
+				addErr = ops.m.AddLB4(*d.NetnsCookie, addr.Addr(), addr.Port(), protocol)
 			}
 			if addErr != nil {
 				err = errors.Join(err, addErr)
@@ -286,12 +290,14 @@ func (ops *skiplbOps) Update(ctx context.Context, txn statedb.ReadTxn, _ statedb
 				NetnsCookie: *d.NetnsCookie,
 				Address:     addr.Addr().As16(),
 				Port:        addr.Port(),
+				Protocol:    uint8(loadbalancer.L4TypeAsProtocolNumber(addr.Protocol())),
 			})
 		} else {
 			deleteErr = ops.m.DeleteLB4(&lbmaps.SkipLB4Key{
 				NetnsCookie: *d.NetnsCookie,
 				Address:     addr.Addr().As4(),
 				Port:        addr.Port(),
+				Protocol:    uint8(loadbalancer.L4TypeAsProtocolNumber(addr.Protocol())),
 			})
 		}
 		if deleteErr != nil && !errors.Is(deleteErr, ebpf.ErrKeyNotExist) {
@@ -406,18 +412,20 @@ func newSkipLBMapCommand(m lbmaps.SkipLBMap) hive.ScriptCmdsOut {
 
 				for key := range m.AllLB4() {
 					addr := netip.AddrFrom4(key.Address)
-					out = append(out, fmt.Sprintf("COOKIE=%d IP=%s PORT=%d\n",
+					out = append(out, fmt.Sprintf("COOKIE=%d IP=%s PORT=%d PROTO=%d\n",
 						key.NetnsCookie,
 						addr,
 						key.Port,
+						key.Protocol,
 					))
 				}
 				for key := range m.AllLB6() {
 					addr := netip.AddrFrom16(key.Address)
-					out = append(out, fmt.Sprintf("COOKIE=%d IP=%s PORT=%d\n",
+					out = append(out, fmt.Sprintf("COOKIE=%d IP=%s PORT=%d PROTO=%d\n",
 						key.NetnsCookie,
 						addr,
 						key.Port,
+						key.Protocol,
 					))
 				}
 

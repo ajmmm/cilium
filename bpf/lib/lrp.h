@@ -1,3 +1,4 @@
+/* This file was not reviewed by a human before submission */
 /* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
 /* Copyright Authors of Cilium */
 
@@ -7,13 +8,15 @@ struct skip_lb4_key {
 	__u64 netns_cookie;     /* Source pod netns cookie */
 	__u32 address;          /* Destination service virtual IPv4 address */
 	__u16 port;             /* Destination service virtual layer4 port */
-	__u16 pad;
+	__u8 protocol;	          /* Destination layer4 protocol */
+	__u8 pad;
 };
 
 struct skip_lb6_key {
 	__u64 netns_cookie;     /* Source pod netns cookie */
 	union v6addr address;   /* Destination service virtual IPv6 address */
-	__u32 pad;
+	__u8 protocol;	          /* Destination layer4 protocol */
+	__u8 pad[3];
 	__u16 port;             /* Destination service virtual layer4 port */
 	__u16 pad2;
 };
@@ -39,7 +42,8 @@ struct {
 DECLARE_CONFIG(bool, enable_lrp, "Enable support for Local Redirect Policy")
 
 static __always_inline bool
-lrp_v6_skip_xlate_from_ctx_to_svc(__net_cookie cookie, union v6addr addr, __be16 port)
+lrp_v6_skip_xlate_from_ctx_to_svc(__net_cookie cookie, union v6addr addr, __be16 port,
+				  __u8 protocol)
 {
 	struct skip_lb6_key key;
 	__u8 *val = NULL;
@@ -48,7 +52,13 @@ lrp_v6_skip_xlate_from_ctx_to_svc(__net_cookie cookie, union v6addr addr, __be16
 	key.netns_cookie = cookie;
 	key.address = addr;
 	key.port = port;
+	key.protocol = protocol;
 	val = map_lookup_elem(&cilium_skip_lb6, &key);
+	if (!val) {
+		/* A zero protocol is a legacy ANY-protocol entry. */
+		key.protocol = 0;
+		val = map_lookup_elem(&cilium_skip_lb6, &key);
+	}
 	if (val)
 		return true;
 	return false;
@@ -72,7 +82,8 @@ lrp_v6_skip_xlate_from_ctx_to_svc(__net_cookie cookie, union v6addr addr, __be16
  * traffic would get looped back to the proxy Pod.
  */
 static __always_inline bool
-lrp_v4_skip_xlate_from_ctx_to_svc(__net_cookie cookie, __be32 address, __be16 port)
+lrp_v4_skip_xlate_from_ctx_to_svc(__net_cookie cookie, __be32 address, __be16 port,
+				  __u8 protocol)
 {
 	struct skip_lb4_key key;
 	__u8 *val = NULL;
@@ -81,7 +92,13 @@ lrp_v4_skip_xlate_from_ctx_to_svc(__net_cookie cookie, __be32 address, __be16 po
 	key.netns_cookie = cookie;
 	key.address = address;
 	key.port = port;
+	key.protocol = protocol;
 	val = map_lookup_elem(&cilium_skip_lb4, &key);
+	if (!val) {
+		/* A zero protocol is a legacy ANY-protocol entry. */
+		key.protocol = 0;
+		val = map_lookup_elem(&cilium_skip_lb4, &key);
+	}
 	if (val)
 		return true;
 	return false;

@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 /* Copyright Authors of Cilium */
 
@@ -240,7 +241,7 @@ static __always_inline int __per_packet_lb_svc_xlate_4(void *ctx, struct iphdr *
 
 				if (netns_cookie > 0 && unlikely(lb4_svc_is_localredirect(svc)) &&
 				    lrp_v4_skip_xlate_from_ctx_to_svc(netns_cookie, tuple.daddr,
-								      tuple.sport))
+								      tuple.sport, tuple.nexthdr))
 					goto skip_service_lookup;
 			}
 
@@ -405,7 +406,7 @@ static __always_inline int __per_packet_lb_svc_xlate_6(void *ctx, struct ipv6hdr
 
 				if (netns_cookie > 0 && unlikely(lb6_svc_is_localredirect(svc)) &&
 				    lrp_v6_skip_xlate_from_ctx_to_svc(netns_cookie, tuple.daddr,
-								      tuple.sport))
+								      tuple.sport, tuple.nexthdr))
 					goto skip_service_lookup;
 			}
 

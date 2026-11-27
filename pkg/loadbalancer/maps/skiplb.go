@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -20,8 +21,8 @@ import (
 
 // SkipLBMap provides access to the eBPF map that stores entries for which load-balancing is skipped.
 type SkipLBMap interface {
-	AddLB4(netnsCookie uint64, ip netip.Addr, port uint16) error
-	AddLB6(netnsCookie uint64, ip netip.Addr, port uint16) error
+	AddLB4(netnsCookie uint64, ip netip.Addr, port uint16, protocol uint8) error
+	AddLB6(netnsCookie uint64, ip netip.Addr, port uint16, protocol uint8) error
 	AllLB4() iter.Seq2[*SkipLB4Key, *SkipLB4Value]
 	AllLB6() iter.Seq2[*SkipLB6Key, *SkipLB6Value]
 	DeleteLB4(key *SkipLB4Key) error
@@ -111,16 +112,16 @@ func (m *skipLBMap) AllLB6() iter.Seq2[*SkipLB6Key, *SkipLB6Value] {
 }
 
 // AddLB4 adds the given tuple to skip LB for to the BPF v4 map.
-func (m *skipLBMap) AddLB4(netnsCookie uint64, ip netip.Addr, port uint16) error {
+func (m *skipLBMap) AddLB4(netnsCookie uint64, ip netip.Addr, port uint16, protocol uint8) error {
 	return m.bpfMap4.Update(
-		NewSkipLB4Key(netnsCookie, ip, port),
+		NewSkipLB4Key(netnsCookie, ip, port, protocol),
 		&SkipLB4Value{})
 }
 
 // AddLB6 adds the given tuple to skip LB for to the BPF v6 map.
-func (m *skipLBMap) AddLB6(netnsCookie uint64, ip netip.Addr, port uint16) error {
+func (m *skipLBMap) AddLB6(netnsCookie uint64, ip netip.Addr, port uint16, protocol uint8) error {
 	return m.bpfMap6.Update(
-		NewSkipLB6Key(netnsCookie, ip, port),
+		NewSkipLB6Key(netnsCookie, ip, port, protocol),
 		&SkipLB6Value{})
 }
 

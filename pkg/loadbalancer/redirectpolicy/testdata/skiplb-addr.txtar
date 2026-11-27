@@ -1,3 +1,4 @@
+# This file was not reviewed by a human before submission
 # Test the handling of 'SkipRedirectFromBackend'. If this field is set in the
 # LocalRedirectPolicy then the SkipLBMap should be populated accordingly to skip
 # the load-balancing in datapath for packets originating from the backend.
@@ -125,8 +126,8 @@ Pod            SkipRedirects                                 NetnsCookie  Status
 test/lrp-pod   169.254.169.255:8080/TCP, [1001::1]:8080/TCP  <unset>
 
 -- skiplbmap.expected --
-COOKIE=12345 IP=1001::1 PORT=8080
-COOKIE=12345 IP=169.254.169.255 PORT=8080
+COOKIE=12345 IP=1001::1 PORT=8080 PROTO=6
+COOKIE=12345 IP=169.254.169.255 PORT=8080 PROTO=6
 -- skiplbmap.empty --
 -- services-before.table --
 Name                          Source

@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 /* Copyright Authors of Cilium */
 
@@ -366,7 +367,7 @@ static __always_inline int __sock4_xlate_fwd(struct bpf_sock_addr *ctx,
 	if (CONFIG(enable_lrp) &&
 	    lb4_svc_is_localredirect(svc) &&
 	    lrp_v4_skip_xlate_from_ctx_to_svc(get_netns_cookie(ctx_full),
-					      dst_ip, dst_port))
+					      dst_ip, dst_port, (__u8)ctx_full->protocol))
 		return -ENXIO;
 
 	/* Do not perform service translation at socker layer for
@@ -1091,7 +1092,7 @@ static __always_inline int __sock6_xlate_fwd(struct bpf_sock_addr *ctx,
 	if (CONFIG(enable_lrp) &&
 	    lb6_svc_is_localredirect(svc) &&
 	    lrp_v6_skip_xlate_from_ctx_to_svc(get_netns_cookie(ctx),
-					      dst_ip, dst_port))
+					      dst_ip, dst_port, (__u8)ctx->protocol))
 		return -ENXIO;
 
 	/* See __sock4_xlate_fwd for commentary. */

@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 /* Copyright Authors of Cilium */
 
@@ -60,6 +61,7 @@ int v4_local_backend_to_service_setup(struct __ctx_buff *ctx)
 		.netns_cookie = NETNS_COOKIE,
 		.address = V4_SERVICE_IP,
 		.port = SERVICE_PORT,
+		.protocol = IPPROTO_TCP,
 	};
 	__u8 val = 0;
 
@@ -163,6 +165,7 @@ int v6_local_backend_to_service_setup(struct __ctx_buff *ctx)
 	struct skip_lb6_key key __align_stack_8 = {
 		.netns_cookie = NETNS_COOKIE,
 		.port = SERVICE_PORT,
+		.protocol = IPPROTO_TCP,
 	};
 	__u8 val = 0;
 

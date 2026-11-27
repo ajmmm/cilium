@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -1278,13 +1279,14 @@ const (
 	SkipLB6MapName = maps.CiliumSkipLB6
 )
 
-// SkipLB4Key is the tuple with netns cookie, address and port and used as key in
-// the skip LB4 map.
+// SkipLB4Key is the tuple with netns cookie, address, port, and protocol used
+// as key in the skip LB4 map.
 type SkipLB4Key struct {
 	NetnsCookie uint64     `align:"netns_cookie"`
 	Address     types.IPv4 `align:"address"`
 	Port        uint16     `align:"port"`
-	Pad         int16      `align:"pad"`
+	Protocol    uint8      `align:"protocol"`
+	Pad         uint8      `align:"pad"`
 }
 
 type SkipLB4Value struct {
@@ -1292,10 +1294,11 @@ type SkipLB4Value struct {
 }
 
 // NewSkipLB4Key creates the SkipLB4Key
-func NewSkipLB4Key(netnsCookie uint64, address netip.Addr, port uint16) *SkipLB4Key {
+func NewSkipLB4Key(netnsCookie uint64, address netip.Addr, port uint16, protocol uint8) *SkipLB4Key {
 	key := SkipLB4Key{
 		NetnsCookie: netnsCookie,
 		Port:        byteorder.HostToNetwork16(port),
+		Protocol:    protocol,
 	}
 	key.Address.FromAddr(address.Unmap())
 
@@ -1309,7 +1312,7 @@ func (v *SkipLB4Value) GetValuePtr() unsafe.Pointer { return unsafe.Pointer(v) }
 
 // String converts the key into a human-readable string format.
 func (k *SkipLB4Key) String() string {
-	return fmt.Sprintf("[%d]:%d, %d", k.NetnsCookie, k.Address, k.Port)
+	return fmt.Sprintf("[%d]:%d, %d, %d", k.NetnsCookie, k.Address, k.Port, k.Protocol)
 }
 
 func (v *SkipLB4Value) New() bpf.MapValue { return &SkipLB4Value{} }
@@ -1319,12 +1322,13 @@ func (v *SkipLB4Value) String() string {
 	return ""
 }
 
-// SkipLB6Key is the tuple with netns cookie, address and port and used as key in
-// the skip LB6 map.
+// SkipLB6Key is the tuple with netns cookie, address, port, and protocol used
+// as key in the skip LB6 map.
 type SkipLB6Key struct {
 	NetnsCookie uint64     `align:"netns_cookie"`
 	Address     types.IPv6 `align:"address"`
-	Pad         uint32     `align:"pad"`
+	Protocol    uint8      `align:"protocol"`
+	Pad         [3]uint8   `align:"pad"`
 	Port        uint16     `align:"port"`
 	Pad2        uint16     `align:"pad2"`
 }
@@ -1334,10 +1338,11 @@ type SkipLB6Value struct {
 }
 
 // NewSkipLB6Key creates the SkipLB6Key
-func NewSkipLB6Key(netnsCookie uint64, address netip.Addr, port uint16) *SkipLB6Key {
+func NewSkipLB6Key(netnsCookie uint64, address netip.Addr, port uint16, protocol uint8) *SkipLB6Key {
 	key := SkipLB6Key{
 		NetnsCookie: netnsCookie,
 		Port:        byteorder.HostToNetwork16(port),
+		Protocol:    protocol,
 	}
 	key.Address.FromAddr(address)
 
@@ -1354,7 +1359,7 @@ func (v *SkipLB6Value) GetValuePtr() unsafe.Pointer { return unsafe.Pointer(v) }
 
 // String converts the key into a human-readable string format.
 func (k *SkipLB6Key) String() string {
-	return fmt.Sprintf("[%d]:%d, %d", k.NetnsCookie, k.Address, k.Port)
+	return fmt.Sprintf("[%d]:%d, %d, %d", k.NetnsCookie, k.Address, k.Port, k.Protocol)
 }
 
 func (v *SkipLB6Value) New() bpf.MapValue { return &SkipLB6Value{} }

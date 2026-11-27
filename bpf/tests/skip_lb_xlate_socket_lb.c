@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 /* Copyright Authors of Cilium */
 
@@ -77,6 +78,7 @@ int test_sock4_xlate_fwd_skip_lb(__maybe_unused struct xdp_md *ctx)
 		.netns_cookie = NETNS_COOKIE,
 		.address = v4_svc_one,
 		.port = tcp_svc_one,
+		.protocol = IPPROTO_TCP,
 	};
 	__u8 val = 0;
 
@@ -93,6 +95,15 @@ int test_sock4_xlate_fwd_skip_lb(__maybe_unused struct xdp_md *ctx)
 	ipcache_v4_add_entry(v4_pod_one, 0, 112233, 0, 0);
 
 	test_init();
+	assert(lrp_v4_skip_xlate_from_ctx_to_svc(NETNS_COOKIE, v4_svc_one,
+							 tcp_svc_one, IPPROTO_TCP));
+	assert(!lrp_v4_skip_xlate_from_ctx_to_svc(NETNS_COOKIE, v4_svc_one,
+							  tcp_svc_one, IPPROTO_UDP));
+	key.protocol = 0;
+	ret = map_update_elem(&cilium_skip_lb4, &key, &val, BPF_ANY);
+	assert(lrp_v4_skip_xlate_from_ctx_to_svc(NETNS_COOKIE, v4_svc_one,
+							 tcp_svc_one, IPPROTO_UDP));
+	map_delete_elem(&cilium_skip_lb4, &key);
 
 	/* Skip LB xlate when pod_one is connecting to v4_svc_one:tcp_svc_one. */
 	addr.user_ip4 = v4_svc_one,
@@ -146,6 +157,7 @@ int test_sock6_xlate_fwd_skip_lb(__maybe_unused struct xdp_md *ctx)
 	struct skip_lb6_key key = {
 		.netns_cookie = NETNS_COOKIE,
 		.port = tcp_svc_one,
+		.protocol = IPPROTO_TCP,
 	};
 	__u8 val = 0;
 
@@ -165,6 +177,15 @@ int test_sock6_xlate_fwd_skip_lb(__maybe_unused struct xdp_md *ctx)
 	ipcache_v6_add_entry((union v6addr *)V6_BACKEND1, 0, 112233, 0, 0);
 
 	test_init();
+	assert(lrp_v6_skip_xlate_from_ctx_to_svc(NETNS_COOKIE, frontend_ip1,
+							 tcp_svc_one, IPPROTO_TCP));
+	assert(!lrp_v6_skip_xlate_from_ctx_to_svc(NETNS_COOKIE, frontend_ip1,
+							  tcp_svc_one, IPPROTO_UDP));
+	key.protocol = 0;
+	ret = map_update_elem(&cilium_skip_lb6, &key, &val, BPF_ANY);
+	assert(lrp_v6_skip_xlate_from_ctx_to_svc(NETNS_COOKIE, frontend_ip1,
+							 tcp_svc_one, IPPROTO_UDP));
+	map_delete_elem(&cilium_skip_lb6, &key);
 
 	/* Skip LB xlate when pod_one is connecting to V6_SVC_ONE:tcp_svc_one. */
 	addr.sk->src_ip6[0] = bpf_htonl(0xfd040000);

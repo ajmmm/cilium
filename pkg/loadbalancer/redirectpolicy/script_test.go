@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -137,11 +138,12 @@ type fakeSkipLBMap struct {
 }
 
 // AddLB4 implements lbmap.SkipLBMap.
-func (f *fakeSkipLBMap) AddLB4(netnsCookie uint64, ip netip.Addr, port uint16) error {
+func (f *fakeSkipLBMap) AddLB4(netnsCookie uint64, ip netip.Addr, port uint16, protocol uint8) error {
 	key := lbmaps.SkipLB4Key{
 		NetnsCookie: netnsCookie,
 		Address:     ip.As4(),
 		Port:        port,
+		Protocol:    protocol,
 	}
 	f.entries.Store(
 		key,
@@ -151,11 +153,12 @@ func (f *fakeSkipLBMap) AddLB4(netnsCookie uint64, ip netip.Addr, port uint16) e
 }
 
 // AddLB6 implements lbmap.SkipLBMap.
-func (f *fakeSkipLBMap) AddLB6(netnsCookie uint64, ip netip.Addr, port uint16) error {
+func (f *fakeSkipLBMap) AddLB6(netnsCookie uint64, ip netip.Addr, port uint16, protocol uint8) error {
 	key := lbmaps.SkipLB6Key{
 		NetnsCookie: netnsCookie,
 		Address:     ip.As16(),
 		Port:        port,
+		Protocol:    protocol,
 	}
 	f.entries.Store(
 		key,

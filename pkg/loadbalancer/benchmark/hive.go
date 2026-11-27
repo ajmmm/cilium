@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -156,10 +157,10 @@ func testHive(lbConfig loadbalancer.Config,
 // satisfying the LRP skip-LB dependency without interacting with a BPF map.
 type noopSkipLBMap struct{}
 
-func (*noopSkipLBMap) AddLB4(uint64, netip.Addr, uint16) error { return nil }
-func (*noopSkipLBMap) AddLB6(uint64, netip.Addr, uint16) error { return nil }
-func (*noopSkipLBMap) DeleteLB4(*lbmaps.SkipLB4Key) error      { return nil }
-func (*noopSkipLBMap) DeleteLB6(*lbmaps.SkipLB6Key) error      { return nil }
+func (*noopSkipLBMap) AddLB4(uint64, netip.Addr, uint16, uint8) error { return nil }
+func (*noopSkipLBMap) AddLB6(uint64, netip.Addr, uint16, uint8) error { return nil }
+func (*noopSkipLBMap) DeleteLB4(*lbmaps.SkipLB4Key) error             { return nil }
+func (*noopSkipLBMap) DeleteLB6(*lbmaps.SkipLB6Key) error             { return nil }
 
 func (*noopSkipLBMap) AllLB4() iter.Seq2[*lbmaps.SkipLB4Key, *lbmaps.SkipLB4Value] {
 	return func(func(*lbmaps.SkipLB4Key, *lbmaps.SkipLB4Value) bool) {}
