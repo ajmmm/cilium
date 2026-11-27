@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -29,14 +30,15 @@ import (
 )
 
 const (
-	k8sAPIGroupCiliumNetworkPolicyV2            = "cilium/v2::CiliumNetworkPolicy"
-	k8sAPIGroupCiliumClusterwideNetworkPolicyV2 = "cilium/v2::CiliumClusterwideNetworkPolicy"
-	k8sAPIGroupPolicyNetworkingV1Alpha2         = "policy.networking.k8s.io/v1alpha2::ClusterNetworkPolicy"
-	k8sAPIGroupCiliumCIDRGroupV2                = "cilium/v2::CiliumCIDRGroup"
-	k8sAPIGroupCiliumNodeV2                     = "cilium/v2::CiliumNode"
-	k8sAPIGroupCiliumEndpointV2                 = "cilium/v2::CiliumEndpoint"
-	k8sAPIGroupCiliumLocalRedirectPolicyV2      = "cilium/v2::CiliumLocalRedirectPolicy"
-	k8sAPIGroupCiliumEndpointSliceV2Alpha1      = "cilium/v2alpha1::CiliumEndpointSlice"
+	k8sAPIGroupCiliumNetworkPolicyV2                        = "cilium/v2::CiliumNetworkPolicy"
+	k8sAPIGroupCiliumClusterwideNetworkPolicyV2             = "cilium/v2::CiliumClusterwideNetworkPolicy"
+	k8sAPIGroupPolicyNetworkingV1Alpha2                     = "policy.networking.k8s.io/v1alpha2::ClusterNetworkPolicy"
+	k8sAPIGroupCiliumCIDRGroupV2                            = "cilium/v2::CiliumCIDRGroup"
+	k8sAPIGroupCiliumNodeV2                                 = "cilium/v2::CiliumNode"
+	k8sAPIGroupCiliumEndpointV2                             = "cilium/v2::CiliumEndpoint"
+	k8sAPIGroupCiliumLocalRedirectPolicyV2                  = "cilium/v2::CiliumLocalRedirectPolicy"
+	k8sAPIGroupCiliumClusterwideLocalRedirectPolicyV2Alpha1 = "cilium/v2alpha1::CiliumClusterwideLocalRedirectPolicy"
+	k8sAPIGroupCiliumEndpointSliceV2Alpha1                  = "cilium/v2alpha1::CiliumEndpointSlice"
 )
 
 func init() {
@@ -176,9 +178,10 @@ var ciliumResourceToGroupMapping = map[string]watcherInfo{
 	synced.CRDResourceName(synced.KCNPCRDName):                            {waitOnly, k8sAPIGroupPolicyNetworkingV1Alpha2},         // Handled in pkg/policy/k8s/
 	synced.CRDResourceName(cilium_v2.CEPName):                             {start, k8sAPIGroupCiliumEndpointV2},                    // ipcache
 	synced.CRDResourceName(cilium_v2.CNName):                              {start, k8sAPIGroupCiliumNodeV2},
-	synced.CRDResourceName(cilium_v2.CIDName):                             {skip, ""},                                     // Handled in pkg/k8s/identitybackend/
-	synced.CRDResourceName(cilium_v2.CLRPName):                            {skip, k8sAPIGroupCiliumLocalRedirectPolicyV2}, // Handled in pkg/loadbalacer/redirectpolicy
-	synced.CRDResourceName(cilium_v2.CEGPName):                            {skip, ""},                                     // Handled via Resource[T].
+	synced.CRDResourceName(cilium_v2.CIDName):                             {skip, ""},                                                      // Handled in pkg/k8s/identitybackend/
+	synced.CRDResourceName(cilium_v2.CLRPName):                            {skip, k8sAPIGroupCiliumLocalRedirectPolicyV2},                  // Handled in pkg/loadbalacer/redirectpolicy
+	synced.CRDResourceName(v2alpha1.CCLRPName):                            {skip, k8sAPIGroupCiliumClusterwideLocalRedirectPolicyV2Alpha1}, // Handled in pkg/loadbalancer/redirectpolicy
+	synced.CRDResourceName(cilium_v2.CEGPName):                            {skip, ""},                                                      // Handled via Resource[T].
 	synced.CRDResourceName(v2alpha1.CESName):                              {start, k8sAPIGroupCiliumEndpointSliceV2Alpha1},
 	synced.CRDResourceName(cilium_v2.CCECName):                            {skip, ""}, // Handled in pkg/ciliumenvoyconfig/
 	synced.CRDResourceName(cilium_v2.CECName):                             {skip, ""}, // Handled in pkg/ciliumenvoyconfig/

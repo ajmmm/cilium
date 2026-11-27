@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/cilium/cilium/api/v1/server/restapi/service"
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	ciliumv2alpha1 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
 	k8sSynced "github.com/cilium/cilium/pkg/k8s/synced"
 	k8sTables "github.com/cilium/cilium/pkg/k8s/tables"
 	"github.com/cilium/cilium/pkg/loadbalancer"
@@ -31,6 +33,8 @@ var Cell = cell.Module(
 	cell.Provide(
 		// Provide Table[*LocalRedirectPolicy]. Used from replaceAPI.
 		statedb.RWTable[*LocalRedirectPolicy].ToTable,
+		// Provide the compiled per-node CCLRP state for inspection.
+		statedb.RWTable[*ClusterwideLocalRedirectPolicyState].ToTable,
 
 		// Wait for the CiliumLocalRedirectPolicy CRD when LRP is enabled.
 		lrpCRDSyncResourceNames,
@@ -47,13 +51,18 @@ var Cell = cell.Module(
 
 	cell.ProvidePrivate(
 		newLRPListerWatcher,
+		newCCLRPListerWatcher,
 		NewLRPTable,
+		NewCCLRPTable,
+		NewCCLRPStateTable,
 		newDesiredSkipLBTable,
 	),
 
 	cell.Invoke(
 		// Reflect the CiliumLocalRedirectPolicy CRDs into Table[*LocalRedirectPolicy]
 		registerLRPReflector,
+		// Reflect CiliumClusterwideLocalRedirectPolicy CRDs into normalized intent.
+		registerCCLRPReflector,
 
 		// Register a controller to process the changes in the LRP, pod and frontend
 		// tables.
@@ -77,6 +86,7 @@ func lrpCRDSyncResourceNames(cfg Config) k8sSynced.CRDSyncResourceNamesOut {
 	}
 	return k8sSynced.NewCRDSyncResourceNamesOut(
 		k8sSynced.CRDResourceName(ciliumv2.CLRPName),
+		k8sSynced.CRDResourceName(ciliumv2alpha1.CCLRPName),
 	)
 }
 
